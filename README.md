@@ -1,61 +1,56 @@
-# {PROJECT NAME}
-## NHS England Digitial Analytics and Research Team - PhD Internship Project
+# Synthetic Clinical Note Generation
 
-### About the Project
+## NHS England Data Science and Applied AI Team
 
-[![status: experimental](https://github.com/GIScience/badges/raw/master/status/experimental.svg)](https://github.com/GIScience/badges#experimental)
+![Robot doctor writing synthetic clinical notes](docs/pics/SCN_banner.jpg)
 
-This repository holds code for the {PROJECT NAME} {SHORT DESCRIPTION}
+This project uses LLMs to generate synthetic clinical notes for entire patient journeys in hospitals.
 
-[Link to original project propsoal](https://nhsx.github.io/nhsx-internship-projects/)
+### ⚠️ Important Notice to Users ⚠️
 
-_**Note:** Only public or fake data are shared in this repository._
+All data found in this repository is entirely **synthetic**.
 
-### Project Stucture
+Synthetic data is artificially generated data that mimics real-world data. It is typically created using real data as a seed and adding noise. However, in this pipeline **no real data is used** at any point. Synthetic data can help with analysis, testing, or model training without using real data.
 
-- The main code is found in the root of the repository (see Usage below for more information)
-- The accompanying [report](./reports/report.pdf) is also available in the `reports` folder
-- More information about the code usage can be found in the [model card](./model_card.md)
-- {OTHER REPO STRUCTURE}
+Synthetic data does have limitations. For more information please read `docs/synthetic_data_limitations`.
 
-### Built With
+### What does this project do?
 
-[![Python v3.8](https://img.shields.io/badge/python-v3.8-blue.svg)](https://www.python.org/downloads/release/python-380/)
-- {LIST OF MAIN PACKAGE VERSIONS}
+This pipeline was developed to aid the testing and evaluation of AI generated discharge summaries.
+
+Using OpenAI's `gpt-4o`, this pipeline generated **high quality** and **realistic** patient journeys and clinical notes.
+
+Clinicians were heavily involved in the evaluation of clinical notes from this pipeline. Their thorough feedback was used to iteratively improve the pipeline.
+
+**The pipeline:**
+
+- Generates synthetic patients.
+- Generates realistic admission reasons (emergency or elective) for each patient.
+- Generates a realistic patient journey from the point of admission to just before discharge.
+- Generates realistic clinical notes for each stage of the journey.
+- Adds augmentations to each note (typos and medical abbreviations)
+
+The pipeline is highly configurable using `params.py` and `config.py`.
+
+Whilst the project was developed on Foundry, it was designed to be easily adaptable to other platforms.
+
+The pipeline was tested with Python 3.12.12.
 
 ### Getting Started
 
-#### Installation
+1. Read the `docs` to better understand what input data needs to be inputted into the pipeline.
+2. Check the functions `call_llm` and `read_write_data` in `processing.py`. These are the only two Foundry-specific functions, so may need to be changed depending on the platform you use.
+3. Install necessary libraries. These can be found in `requirements.txt` but may need to be installed differently depending on your platform.
+4. Check `config.py` and `params.py`. For more info see: `docs/adapting_the_pipeline`.
+5. Check `dataset_utils.py`, `doc_templates.py`, `prompts.py` and `schemas.py`. For more info see: `docs/adapting_the_pipeline`.
+6. Go to `run_pipeline.py` and enjoy!
 
-To get a local copy up and running follow these simple steps.
+### Dependencies
 
-To clone the repo:
+This project did originally make LLM calls via an API to a deployed version of OpenAI's `gpt-4o` model.
+See [https://openai.com/policies/service-terms](https://openai.com/policies/service-terms) and [https://platform.openai.com/](https://platform.openai.com/) for further details.
 
-`git clone https://github.com/nhsx/{REPO NAME}`
-
-To create a suitable environment:
-- ```python -m venv _env```
-- `source _env/bin/activate`
-- `pip install -r requirements.txt`
-
-{ADDITIONAL TECHNICAL SUPPORT AND NEEDS} 
-
-### Usage
-{DESCRIPTION OF CODE}
-
-#### Outputs
-{LIST AND DESCRIPTION OF OUTPUTS}
-
-{NOTES ON REPRODUCIBILITY OF RESULTS}
-
-#### Datasets
-{DESCRIPTION AND LINKS TO DATASETS}
-
-{LINK TO FAKE DATA TO SUPPORT INITAIL CODE RUNS}
-
-### Roadmap
-
-See the {LINK TO REPO ISSUES} for a list of proposed features (and known issues).
+You do not have to use this model, and this can be changed with the `call_llm` function.
 
 ### Contributing
 
@@ -69,9 +64,9 @@ Contributions are what make the open source community such an amazing place to l
 
 _See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed guidance._
 
-### License
+## License
 
-Unless stated otherwise, the codebase is released under [the MIT Licence][mit].
+Unless stated otherwise, the codebase is released under [the MIT License][mit].
 This covers both the codebase and any sample code in the documentation.
 
 _See [LICENSE](./LICENSE) for more information._
@@ -83,9 +78,14 @@ of the [Open Government 3.0][ogl] licence.
 [copyright]: http://www.nationalarchives.gov.uk/information-management/re-using-public-sector-information/uk-government-licensing-framework/crown-copyright/
 [ogl]: http://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
 
-### Contact
+### Contributors (Alphabetical)
 
-To find out more about the [Digitial Analytics and Research Team](https://www.nhsx.nhs.uk/key-tools-and-info/nhsx-analytics-unit/) visit our [project website](https://nhsx.github.io/AnalyticsUnit/projects.html) or get in touch at [analytics-unit@nhsx.nhs.uk](mailto:analytics-unit@nhsx.nhs.uk).
+- Alice Waterhouse
+- Amaia Imaz Blanco
+- Ben Wallace
+- Michael Spence
+- Mobolu Olowoyeye
+- Scarlett Kynoch
+- Will Poulett
 
-<!-- ### Acknowledgements -->
-
+If you have questions, please [contact us](mailto:england.datascience@nhs.net).

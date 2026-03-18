@@ -1,14 +1,15 @@
 # Contributing
-We love contributions! We've compiled these docs to help you understand our contribution guidelines. If you still have questions, please [contact us](mailto:analytics-unit@nhsx.nhs.uk), we'd be super happy to help.
+
+We love contributions! We've compiled these docs to help you understand our contribution guidelines. If you still have questions, please [contact us](mailto:england.datascience@nhs.net), we'd be super happy to help.
 
 ## Contents of this file
 
 - [Code of conduct](#code-of-conduct)
-- [Folder structure](#folder-structure)
 - [Commit hygiene](#commit-hygiene)
 - [Updating Changelog](#updating-changelog)
 
 ## Code of Conduct
+
 Please read [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) before contributing.
 
 ## Commit hygiene
@@ -19,7 +20,8 @@ Please see the GDS [Git style guide in the 'How to store source code' page of th
 
 If you open a GitHub pull request on this repo, please update `CHANGELOG` to reflect your contribution.
 
-Add your entry under `Unreleased` as: 
+Add your entry under `Unreleased` as:
+
 - `Breaking changes`
 - `New features`
 - `Fixes`
