@@ -2,7 +2,7 @@
 
 These unit tests have been designed to test both deterministic and non-deterministic (LLM) functions.
 
-Due to the stochastic nature of LLMs, these is c non-zero chance some tests will fail.
+Due to the stochastic nature of LLMs, these is a non-zero chance some tests will fail.
 
 ### ⚠️ Important Notice to Users ⚠️
 
