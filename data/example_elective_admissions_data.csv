@@ -1,0 +1,21 @@
+﻿Age_Category,Sex,Speciality,Procedure
+0-3,Male,Orthopaedics,Ponseti casting for left clubfoot
+0-3,Male,Orthopaedics,Ponseti casting for right clubfoot
+4-7,Male,Orthopaedics,Removal of internal fixation device from left tibia
+4-7,Male,Orthopaedics,Removal of internal fixation device from right tibia
+13-16,Male,Orthopaedics,Left knee arthroscopy
+13-16,Male,Orthopaedics,Right knee arthroscopy
+0-3,Female,Orthopaedics,Pavlik harness treatment for developmental dysplasia of the hips
+4-7,Female,Orthopaedics,Left tibial derotation osteotomy
+4-7,Female,Orthopaedics,Right tibial derotation osteotomy
+8-12,Female,Orthopaedics,Hemiepiphysiodesis of the left distal femur
+8-12,Female,Orthopaedics,Hemiepiphysiodesis of the right distal femur
+13-16,Female,Orthopaedics,Posterior spinal fusion for scoliosis
+18-59,Male,Trauma and Orthopaedics Service,Total left knee replacement for end stage osteoarthritis
+18-59,Male,Trauma and Orthopaedics Service,Total right knee replacement for end stage osteoarthritis
+18-59,Female,Trauma and Orthopaedics Service,Total left hip replacement for end stage osteoarthritis
+18-59,Female,Trauma and Orthopaedics Service,Total right hip replacement for end stage osteoarthritis
+60+,Male,Trauma and Orthopaedics Service,Total left shoulder replacement for end stage osteoarthritis
+60+,Male,Trauma and Orthopaedics Service,Total right shoulder replacement for end stage osteoarthritis
+60+,Female,Trauma and Orthopaedics Service,Total left hip replacement for end stage osteoarthritis
+60+,Female,Trauma and Orthopaedics Service,Total right hip replacement for end stage osteoarthritis

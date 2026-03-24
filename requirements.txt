@@ -1,0 +1,15 @@
+# Note - The method for installing these libraries will depend on the platform you are using.
+
+# Note - You may also need to add/remove libraries depending on how you adapt your `call_llm` and `read_write_data` functions.
+
+palantir_models
+ipykernel
+foundry-transforms-lib-python
+pandas
+matplotlib
+pytest-asyncio
+setuptools<80.0.0
+typo
+textstat
+py-readability-metrics
+pytest
