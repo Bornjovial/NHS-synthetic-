@@ -20,6 +20,9 @@ import pathlib
 import sys
 from datetime import datetime
 
+import urllib.request
+import urllib.error
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Synthetic clinical notes pipeline")
@@ -66,6 +69,56 @@ def apply_config_overrides(args):
         PARAMS["pipeline_config"]["TEST_MODE"] = True
     if args.concurrency:
         PARAMS["pipeline_config"]["llm_concurrency"] = args.concurrency
+
+
+def preflight_check(logger):
+    """Validate environment before any LLM calls. Exits with code 1 on failure."""
+    import config.config as cfg
+    from config.params import PARAMS
+
+    ok = True
+
+    # 1. LLM endpoint reachable
+    health_url = cfg.LLM_BASE_URL.rstrip("/").removesuffix("/v1") + "/"
+    try:
+        urllib.request.urlopen(health_url, timeout=5)
+        logger.info(f"LLM endpoint reachable: {health_url}")
+    except urllib.error.URLError as e:
+        logger.error(f"LLM endpoint not reachable at {health_url}: {e}")
+        ok = False
+
+    # 2. Required input CSVs exist
+    data_dir = pathlib.Path(cfg.DATA_DIR)
+    required_csvs = [
+        PARAMS["pipeline_config"]["patients_input_dataset"],
+        PARAMS["pipeline_config"]["emergency_admissions_dataset"],
+        PARAMS["pipeline_config"]["elective_admissions_dataset"],
+    ]
+    for name in required_csvs:
+        path = data_dir / f"{name}.csv"
+        if path.exists():
+            logger.info(f"Input CSV found: {path}")
+        else:
+            logger.error(f"Input CSV missing: {path}")
+            ok = False
+
+    # 3. Output dir writable
+    output_dir = pathlib.Path(cfg.OUTPUT_DIR)
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        test_file = output_dir / ".write_test"
+        test_file.touch()
+        test_file.unlink()
+        logger.info(f"Output dir writable: {output_dir}")
+    except OSError as e:
+        logger.error(f"Output dir not writable at {output_dir}: {e}")
+        ok = False
+
+    if not ok:
+        logger.error("Preflight check failed — fix the above errors before running the pipeline.")
+        sys.exit(1)
+
+    logger.info("Preflight check passed.")
 
 
 async def main(args, logger):
@@ -154,5 +207,7 @@ if __name__ == "__main__":
     logger.info(f"Logging to {log_file}")
 
     apply_config_overrides(args)
+
+    preflight_check(logger)
 
     asyncio.run(main(args, logger))
