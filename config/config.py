@@ -2,12 +2,14 @@
 
 # This file contains params we expect you are unlikely to need to change when using the pipeline. Please see params.py for other params.
 
+import os
+
 # Local LLM endpoint (OpenAI-compatible). Examples:
 #   Ollama:  http://localhost:11434/v1
 #   vLLM:    http://localhost:8000/v1
-#   OpenAI:  https://api.openai.com/v1  (set LLM_API_KEY to your key)
+#   OpenAI:  https://api.openai.com/v1  (set LLM_API_KEY env var to your key)
 LLM_BASE_URL = "http://localhost:11434/v1"
-LLM_API_KEY = "not-needed"
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "not-needed")
 
 # Local filesystem paths for input data and generated outputs
 DATA_DIR = "./data"

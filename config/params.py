@@ -5,7 +5,8 @@
 PARAMS = {
     "pipeline_config": {
         "TEST_MODE": False, # If True, runs pipeline in test mode and generates one clinical note per patient
-        "model" : "qwen2.5:72b", # The name of the LLM served by your local endpoint (e.g. "qwen2.5:72b" for Ollama, "Qwen/Qwen2.5-72B-Instruct-AWQ" for vLLM)
+        "model" : "qwen2.5:32b", # The name of the LLM served by your local endpoint (e.g. "qwen2.5:32b" for Ollama, "Qwen/Qwen2.5-72B-Instruct-AWQ" for vLLM)
+        "llm_concurrency": 4, # Max concurrent LLM calls. Reduce for local models (2-4), increase for APIs (8-16)
         "generate_patient_information": True, # If True, generate patient information
         "generate_admission_information": True, # If True, generate admission details for patients
         "generate_patient_journey": True, # If True, generate patient journey

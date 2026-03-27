@@ -29,6 +29,7 @@ def parse_args():
     parser.add_argument("--output-dir", type=str, help="Directory to write output CSV files to")
     parser.add_argument("--test-mode", action="store_true", help="Generate one clinical note per patient")
     parser.add_argument("--run-name", type=str, default="", help="Label for this run")
+    parser.add_argument("--concurrency", type=int, help="Max concurrent LLM calls (default: from params.py, recommended 2-4 for local models)")
     return parser.parse_args()
 
 
@@ -63,6 +64,8 @@ def apply_config_overrides(args):
         PARAMS["pipeline_config"]["number_of_generations"] = args.generations
     if args.test_mode:
         PARAMS["pipeline_config"]["TEST_MODE"] = True
+    if args.concurrency:
+        PARAMS["pipeline_config"]["llm_concurrency"] = args.concurrency
 
 
 async def main(args, logger):

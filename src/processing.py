@@ -15,6 +15,7 @@ import time
 from contextvars import ContextVar
 import ast
 
+import os
 from openai import OpenAI
 import logging
 
@@ -127,7 +128,9 @@ def read_write_data(table_name: str, read_or_write: str, data: pd.DataFrame = No
     elif read_or_write == "write" and data is not None:
         path = pathlib.Path(OUTPUT_DIR) / f"{table_name}.csv"
         pathlib.Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
-        data.to_csv(path, index=False)
+        tmp_path = path.with_suffix(".tmp")
+        data.to_csv(tmp_path, index=False)
+        os.replace(tmp_path, path)
     else:
         raise Exception("Error: Check read_or_write is one of 'read' or 'write' and data is not None")
 
@@ -142,7 +145,9 @@ async def call_llm_async(prompt: str, model, temp: float = 0.7, max_attempts: in
     """
     sem = _loop_semaphore.get()
     if sem is None:
-        sem = asyncio.Semaphore(8)
+        from config.params import PARAMS
+        concurrency = PARAMS["pipeline_config"].get("llm_concurrency", 8)
+        sem = asyncio.Semaphore(concurrency)
         _loop_semaphore.set(sem)
 
     async with sem:
