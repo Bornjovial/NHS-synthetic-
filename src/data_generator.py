@@ -405,8 +405,8 @@ class generate_admissions():
                 df = df[df["rare_disease"] == 0].copy()
 
             df["Sex_Category"] = df["Sex_Category"].map(gender_dictionary)
-            df["ChiefComplaintDescription"] = df["ChiefComplaintDescription"].str.split("\s+\(").str.get(0)
-            df["DiagnosisDescription"] = df["DiagnosisDescription"].str.split("\s+\(").str.get(0)
+            df["ChiefComplaintDescription"] = df["ChiefComplaintDescription"].str.split(r"\s+\(").str.get(0)
+            df["DiagnosisDescription"] = df["DiagnosisDescription"].str.split(r"\s+\(").str.get(0)
             
             columns_to_keep = [
                 "ChiefComplaintDescription",

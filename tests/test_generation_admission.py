@@ -3,9 +3,8 @@ import pytest_asyncio
 
 from src.data_generator import generate_admissions
 
-admission_generator = generate_admissions(elective_admission_rate = 0)
 
-def test_chief_complaint_generation():
+def test_chief_complaint_generation(admission_generator):
     """
     Confirm that age, chief complaint and diagnosis are generated correctly
     as part of admission complaint generation
