@@ -9,8 +9,10 @@ As a result, there are a number of files you can adapt to change the behavior of
 This file contains the basic parameters needed to run the pipeline. Example parameters include:
 
 1. **TEST_MODE** - If True, runs pipeline in test mode and generates one clinical note per patient.
-2. **number_of_generations** - The number of patient journeys to generate.
-3. **number_of_staff_names** - The number of staff names (approximately) to generate for each patient journey.
+2. **model** - The model name to pass to the LLM endpoint. Must match the model name served by your local server (e.g. `"qwen2.5:72b"` for Ollama, `"Qwen/Qwen2.5-72B-Instruct-AWQ"` for vLLM).
+3. **number_of_generations** - The number of patient journeys to generate.
+4. **number_of_staff_names** - The number of staff names (approximately) to generate for each patient journey.
+5. **elective_admissions_dataset / emergency_admissions_dataset / patients_input_dataset** - Filename stems (without `.csv`) of input data files to read from `DATA_DIR`.
 
 Each parameter has a comment next to it explaining exactly what it does.
 
@@ -18,11 +20,15 @@ Each parameter has a comment next to it explaining exactly what it does.
 
 This file is similar to `params.py`. However, we expect you will not need to make as many changes to the file. Example parameters within the config include:
 
-1. **possible_event_types** - A dictionary containing the possible event types and descriptions to be used when generating clinical notes.
-2. **doctor_roles** - The possible roles that can be assigned to a doctor.
-3. **sections_to_ignore_typos** - Note sections where you do not wish to add typos.
-4. **style_instructions** - The medical professional personas used to add variation to clinical notes.
-5. **allergy_prevalence** - The prevalence of different allergies, sampled when generating patients.
+1. **LLM_BASE_URL** - The base URL of the OpenAI-compatible API server (e.g. `http://localhost:11434/v1` for Ollama, `http://localhost:8000/v1` for vLLM, or `https://api.openai.com/v1` for the OpenAI API).
+2. **LLM_API_KEY** - API key for the LLM endpoint. Set to `"not-needed"` for local servers that don't require authentication.
+3. **DATA_DIR** - Directory to read input CSV files from (default: `./data`).
+4. **OUTPUT_DIR** - Directory to write generated output CSV files to (default: `./output`).
+5. **possible_event_types** - A dictionary containing the possible event types and descriptions to be used when generating clinical notes.
+6. **doctor_roles** - The possible roles that can be assigned to a doctor.
+7. **sections_to_ignore_typos** - Note sections where you do not wish to add typos.
+8. **style_instructions** - The medical professional personas used to add variation to clinical notes.
+9. **allergy_prevalence** - The prevalence of different allergies, sampled when generating patients.
 
 ## 3. `src/doc_templates.py`
 

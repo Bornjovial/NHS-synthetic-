@@ -1,8 +1,8 @@
 # Changing Functions
 
-This pipeline was written and tested in [code workspaces](https://www.palantir.com/docs/foundry/code-workspaces/overview) in [Palantir Foundry](https://www.palantir.com/platforms/foundry/).
+The pipeline was originally written for [Palantir Foundry](https://www.palantir.com/platforms/foundry/), but has been adapted to run locally using any OpenAI-compatible API server.
 
-As such, two functions written within `src/processing.py` will need to be adapted if you plan on using this pipeline on another platform or locally.
+The two platform-specific functions in `src/processing.py` now use the `openai` Python SDK with a configurable `base_url`, so they work with Ollama, vLLM, the OpenAI API, or any other compatible endpoint. If you need to adapt them further (e.g. for a different SDK or storage backend), the interface contracts below still apply.
 
 ## 1. `call_llm`
 

@@ -18,7 +18,7 @@ Synthetic data does have limitations. For more information please read `docs/syn
 
 This pipeline was developed to aid the testing and evaluation of AI generated discharge summaries.
 
-Using OpenAI's `gpt-4o`, this pipeline generated **high quality** and **realistic** patient journeys and clinical notes.
+Using any OpenAI-compatible LLM (locally via Ollama or vLLM, or via the OpenAI API), this pipeline generates **high quality** and **realistic** patient journeys and clinical notes.
 
 Clinicians were heavily involved in the evaluation of clinical notes from this pipeline. Their thorough feedback was used to iteratively improve the pipeline.
 
@@ -32,25 +32,53 @@ Clinicians were heavily involved in the evaluation of clinical notes from this p
 
 The pipeline is highly configurable using `config/params.py` and `config/config.py`.
 
-Whilst the project was developed on Foundry, it was designed to be easily adaptable to other platforms.
-
 The pipeline was tested with Python 3.12.12.
 
 ### Getting Started
 
-1. Read the `docs` to better understand what input data needs to be inputted into the pipeline.
-2. Check the functions `call_llm` and `read_write_data` in `src/processing.py`. These are the only two Foundry-specific functions, so may need to be changed depending on the platform you use.
-3. Install necessary libraries. These can be found in `requirements.txt` but may need to be installed differently depending on your platform.
-4. Check `config/config.py` and `config/params.py`. For more info see: `docs/adapting_the_pipeline`.
-5. Check `src/dataset_utils.py`, `src/doc_templates.py`, `src/prompts.py` and `src/schemas.py`. For more info see: `docs/adapting_the_pipeline`.
-6. Go to `notebooks/run_pipeline.py` and enjoy!
+1. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Start a local model server.** The pipeline uses any OpenAI-compatible endpoint. Examples:
+   - [Ollama](https://ollama.com): `ollama run qwen2.5:72b`
+   - [vLLM](https://docs.vllm.ai): `vllm serve Qwen/Qwen2.5-72B-Instruct-AWQ`
+   - OpenAI API: set `LLM_BASE_URL = "https://api.openai.com/v1"` and `LLM_API_KEY` to your key
+
+3. **Configure the endpoint and model** in `config/config.py`:
+   ```python
+   LLM_BASE_URL = "http://localhost:11434/v1"  # Ollama default
+   LLM_API_KEY = "not-needed"
+   ```
+   And set the model name in `config/params.py`:
+   ```python
+   "model": "qwen2.5:72b"  # must match what your server is serving
+   ```
+
+4. **Place input data** in `./data/` as CSV files. Example files are already provided. Dataset names in `config/params.py` must match the CSV filenames (without `.csv`).
+
+5. **Review optional settings** in `config/config.py` and `config/params.py`. See `docs/adapting_the_pipeline` for details.
+
+6. **Run the pipeline:**
+
+   **Script (recommended for unattended/production runs):**
+   ```bash
+   python run_pipeline.py --generations 10 --run-name my_run
+   ```
+   Logs are written to stdout and to `logs/run_<timestamp>.log`. Exits with code 1 on failure.
+
+   ```
+   python run_pipeline.py --help   # see all options
+   ```
+
+   **Notebook (interactive/exploratory):** open `notebooks/run_pipeline.ipynb` and run cells sequentially.
+
+   Outputs are written to `./output/`.
 
 ### Dependencies
 
-This project did originally make LLM calls via an API to a deployed version of OpenAI's `gpt-4o` model.
-See [https://openai.com/policies/service-terms](https://openai.com/policies/service-terms) and [https://platform.openai.com/](https://platform.openai.com/) for further details.
-
-You do not have to use this model, and this can be changed with the `call_llm` function.
+The pipeline makes LLM calls via any OpenAI-compatible API. By default it is configured for a local [Ollama](https://ollama.com) server, but can be pointed at vLLM, the OpenAI API, or any other compatible endpoint by changing `LLM_BASE_URL` and `LLM_API_KEY` in `config/config.py`.
 
 ### Contributing
 
