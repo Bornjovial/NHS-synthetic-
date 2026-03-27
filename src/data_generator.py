@@ -1,13 +1,16 @@
 from src.prompts import patient_and_admission_prompts, patient_journey_prompts, clinical_note_prompts
 from src.doc_templates import document_templates, template_sections_to_combine
-from src.dataset_utils import generate_staff_gmc_and_pin, add_sign_off_to_note, prepare_note_data, prepare_patient_data, prepare_admission_data, prepare_encounter_data, prepare_evaluation_data, write_dataset, format_note, get_journey_evaluation_details, generate_staff_gmc_and_pin
+from src.dataset_utils import generate_staff_gmc_and_pin, add_sign_off_to_note, prepare_note_data, prepare_patient_data, prepare_admission_data, prepare_encounter_data, prepare_evaluation_data, write_dataset, format_note, get_journey_evaluation_details
 from src.processing import call_llm, call_llm_async, read_write_data, clean_outputs, remove_failures, clean_int, combine_patients_and_admissions, clean_patient_details, combine_template_sections, add_abbreviations_to_dict, add_typos_to_dict, normalise_array_struct_column, create_admission_window, random_24_hour_time, build_output_info
 from config.params import PARAMS
 from config.config import CONFIG
 
+import logging
 import random
 import json
 import re
+
+logger = logging.getLogger(__name__)
 import pandas as pd
 import numpy as np
 import string
@@ -102,7 +105,7 @@ def generate_hospital_staff(
     if N > 1 or len(staff_names) == 0:  
         # Check N is large enough
         if N < minimum_N:
-            print(f"Number of staff generated is too small, generating {minimum_N} staff")
+            logger.warning(f"Number of staff generated is too small, generating {minimum_N} staff")
             N = minimum_N
 
         # Generate remaining staff randomly with no specified job role
@@ -187,17 +190,17 @@ class generate_patients():
 
     async def run(self, return_output=False):
         if self.generate_patient_information:
-            print(f'Generating {self.number_of_generations} patients...', end = " ")
+            logger.info(f'Generating {self.number_of_generations} patients...')
 
             patients_information = await self.generate_patients()
-            
+
             patients_information = clean_outputs(patients_information,"dictionary",self.model)
             patients_information, removed_ids = remove_failures(patients_information)
-            
+
             if removed_ids:
-                print(f"Patients {removed_ids} removed due to incorrect json compilation")
-        
-            for patient_information in patients_information:   
+                logger.warning(f"Patients {removed_ids} removed due to incorrect json compilation")
+
+            for patient_information in patients_information:
                 patient_information["patient_id"] = str(uuid.uuid4())
                 patient_information["medical_record_number"] = str(random.randint(100000000, 999999999))
                 patient_information["nhs_number"] = str(random.randint(100000000, 999999999))
@@ -205,13 +208,13 @@ class generate_patients():
             list_of_patients = [json.dumps(patient_information) for patient_information in patients_information]
             list_of_patients_df = pd.DataFrame(list_of_patients)
 
-            print("DONE")
+            logger.info("Patient generation DONE")
             self.list_of_patients_df = list_of_patients_df
-            
+
             if return_output:
                 return list_of_patients_df
         else:
-            print("SKIPPING PATIENT GENERATION")
+            logger.info("SKIPPING PATIENT GENERATION")
 
     def write_patients_to_dataset(self):
         if self.list_of_patients_df.empty or self.list_of_patients_df is None:
@@ -380,7 +383,7 @@ class generate_admissions():
         elif admission_type == "procedure":
             df = self.elective_procedures
         else:
-            print("ERROR - Not a valid a admission reason.")
+            logger.error("ERROR - Not a valid admission reason.")
             return None
 
         max_age = PARAMS["pipeline_config"]["maximum_patient_age"]
@@ -449,7 +452,7 @@ class generate_admissions():
         ]
     
         if len(admission_complaints_df) == 0:
-            print(f"ERROR - there are no rows in emergency admissions dataset for a {gender} patient of age {age} years, and novel_disease flag {novel_disease_flag}")
+            logger.error(f"ERROR - there are no rows in emergency admissions dataset for a {gender} patient of age {age} years, and novel_disease flag {novel_disease_flag}")
         
         sampled_details = admission_complaints_df.sample(1, weights="count").to_dict("records")[0]
 
@@ -486,7 +489,7 @@ class generate_admissions():
         ]
     
         if len(elective_procedures_df) == 0:
-            print(f"ERROR - there are no rows in the elective procedures dataset for a {gender} patient of age {age} years")
+            logger.error(f"ERROR - there are no rows in the elective procedures dataset for a {gender} patient of age {age} years")
         
         sampled_details = elective_procedures_df.sample(1).to_dict("records")[0]
         
@@ -513,37 +516,37 @@ class generate_admissions():
 
     async def run(self, return_output=False):
         if self.generate_admission_information:
-            print(f'Generating {self.number_of_generations} admissions...', end = " ")
-            
+            logger.info(f'Generating {self.number_of_generations} admissions...')
+
             patients_information = [json.loads(patient_row.iloc[0]) for i, patient_row in self.patients.iterrows()]
 
             admissions_information = await self.generate_all_admissions(patients_information)
             admissions_information = clean_outputs(admissions_information,"dictionary",self.model)
-            
+
             admissions_information, removed_ids = remove_failures(admissions_information)
             if removed_ids:
-                print(f"Admissions {removed_ids} removed due to incorrect json compilation")
-            
+                logger.warning(f"Admissions {removed_ids} removed due to incorrect json compilation")
+
             expected_lengths_of_stay = await self.generate_length_of_stay(admissions_information)
             expected_lengths_of_stay = [clean_int(LoS) for LoS in expected_lengths_of_stay]
-            
+
             for LoS, patient_information, admission_information in zip(expected_lengths_of_stay, patients_information, admissions_information):
                 admission_information["patient_id"] = patient_information["patient_id"]
                 admission_information["medical_record_number"] = patient_information["medical_record_number"]
                 admission_information["nhs_number"] = patient_information["nhs_number"]
                 admission_information["bed_location"] = random.choice(["A", "B", "C"]) + "0" + random.choice(string.digits)
                 admission_information["expected_length_of_stay"] = str(LoS)
-            
+
             list_of_admissions = [json.dumps(admission_information) for admission_information in admissions_information]
-                    
+
             self.list_of_admissions_df = pd.DataFrame(list_of_admissions)
-            
-            print("DONE")
+
+            logger.info("Admission generation DONE")
             if return_output:
                 return self.list_of_admissions_df
-            
+
         else:
-            print("SKIPPING ADMISSION GENERATION")
+            logger.info("SKIPPING ADMISSION GENERATION")
 
     def write_admissions_to_dataset(self):
         if self.list_of_admissions_df is None:
@@ -605,7 +608,7 @@ class generate_journeys():
             try:
                 self.intermediate_hospital_staff = intermediate_hospital_staff if intermediate_hospital_staff is not None else  read_write_data("intermediate_hospital_staff", "read") # TODO - check what happens if this dataset is empty
             except:
-                print("Error - Cannot use previous hospital staff, generating new staff.")
+                logger.warning("Error - Cannot use previous hospital staff, generating new staff.")
                 self.use_intermediate_hospital_staff = False
         # Model
         self.model = model if model is not None else PARAMS["pipeline_config"]["model"]
@@ -717,7 +720,7 @@ class generate_journeys():
             for i in range(5):
                 if full_output == False:
                     chat_history.extend([simple_journey_prompt, raw_journey])
-                    print(f"Generating more events for journey {journey_i}...", end = " ")
+                    logger.info(f"Generating more events for journey {journey_i}...")
                     prompt = patient_journey_prompts["continue_journey_prompt"]
                     raw_response = await call_llm_async(prompt, self.model, chat_history = chat_history)
                     journey_complete = await call_llm_async(self.test_events_complete_prompts([raw_response])[0], model)
@@ -918,27 +921,26 @@ class generate_journeys():
             list_of_staff_personas = []
 
             # START GENERATING SIMPLE JOURNEYS
-            print("Generating simple journeys...", end = " ")
+            logger.info("Generating simple journeys...")
 
             simple_patient_journeys = await self.generate_patient_journeys(self.model, patients_and_admissions, lengths_of_stays)
-            
+
             max_attempts = 5
             clean_journeys = []
             for journey_i, (journey, admission, length_of_stay) in enumerate(zip(simple_patient_journeys, patients_and_admissions, lengths_of_stays)):
                 new_journey = journey
                 for attempt in range(max_attempts):
                     if any([isinstance(segment, dict) and "FAILURE" in segment.keys() for segment in clean_outputs(new_journey, "list", self.model)]):
-                        print(f"Regenerating journey {journey_i} due to error.")
+                        logger.warning(f"Regenerating journey {journey_i} due to error.")
                         new_journey = await self.generate_patient_journeys(self.model, [admission], [length_of_stay])
                     else:
                         clean_journeys.append([event for journey_segment in clean_outputs(new_journey, "list", self.model) for event in journey_segment])
                         break
                 else:
-                    print(f"WARNING: Failed to generate valid journey after {max_attempts} attempts.")
-                    print(f"Skipping patient {journey_i}")
+                    logger.warning(f"Failed to generate valid journey after {max_attempts} attempts. Skipping patient {journey_i}")
 
             # START VALIDATING SIMPLE JOURNEYS
-            print("Validating simple journeys...")
+            logger.info("Validating simple journeys...")
 
             validator_changes = {f"Patient_{i}" : 0 for i in range(len(simple_patient_journeys))}
             for validator_i in range(self.LLM_validator_iterations):
@@ -958,10 +960,10 @@ class generate_journeys():
                         validated_journeys.append(original_journey)
                 clean_journeys = validated_journeys
             
-            print("Validator Changes:\n", validator_changes)
+            logger.info(f"Validator Changes: {validator_changes}")
 
             # GENERATE EXTRA DETAILS
-            print("Generating extra details...", end = " ")
+            logger.info("Generating extra details...")
 
             journey_matrix = [list(journey) for journey in zip_longest(*clean_journeys, fillvalue=None)]
 
@@ -987,7 +989,7 @@ class generate_journeys():
                 )
 
             # GENERATE STAFF PERSONAS
-            print("Generating staff personas...", end = " ")
+            logger.info("Generating staff personas...")
             # Generated after the jouney incase new staff are added by the LLM
 
             if self.generate_new_staff_per_patient:
@@ -1046,7 +1048,7 @@ class generate_journeys():
                 self.hospital_staff_personas_df = pd.DataFrame()
 
             # SAVE
-            print("Creating full detailed journeys...", end = " ")
+            logger.info("Creating full detailed journeys...")
             detailed_journeys = [json.dumps(journey) for journey in detailed_journeys]
             
             
@@ -1057,17 +1059,17 @@ class generate_journeys():
             self.patient_journeys_df = patient_journeys
             
             if self.filter_journey:
-                print("Filtering journeys...")
+                logger.info("Filtering journeys...")
                 for i, row in patient_journeys.iterrows():
-                    
+
                     row = json.loads(row.iloc[0])
-                    
+
                     events_to_remove = [
                         event["event_type"] for event in row
                         if event is not None and event["event_type"] not in self.event_types.keys()
                     ]
-                    
-                    print(f"Patient {i} - Removing events: {events_to_remove}")
+
+                    logger.info(f"Patient {i} - Removing events: {events_to_remove}")
                     
                     filtered_patient_journey = [
                         json.dumps(event) for event in row if event is not None and event["event_type"] not in events_to_remove
@@ -1081,16 +1083,15 @@ class generate_journeys():
                 journeys = filtered_journeys if self.filter_journey else detailed_journeys
 
                 for i, journey_row in enumerate(journeys):
-                    print(f"Journey {i} has length {len(journey_row)}")
+                    logger.info(f"Journey {i} has length {len(journey_row)}")
 
-            print("DONE")
+            logger.info("Journey generation DONE")
             if return_outputs:
                 journeys = filtered_journeys if self.filter_journey else detailed_journeys
                 return journeys
 
-                        
         else:
-            print("SKIPPING JOURNEY GENERATION")
+            logger.info("SKIPPING JOURNEY GENERATION")
 
 
     def write_journeys_to_dataset(self):
@@ -1265,7 +1266,7 @@ class generate_clinical_notes():
             previous_events.append(journey_event)
         
         if display_prompt:
-            print(prompts)
+            logger.debug(prompts)
         
         tasks = [call_llm_async(prompt, model) for prompt in prompts]
         
@@ -1354,17 +1355,17 @@ class generate_clinical_notes():
         if self.generate_notes:
 
             if self.TEST_MODE:
-                print("TEST MODE: Generating 1 clinical note per patient")
+                logger.info("TEST MODE: Generating 1 clinical note per patient")
                 journeys = self.journeys[["0"]]
             else:
                 journeys = self.journeys
 
             final_patient_documents = []
-    
+
             for (journey_i, journey_row), (patient_i, patient_row), (persona_i, persona_row) in zip(
                 journeys.iterrows(), enumerate(self.patients_and_admissions), self.staff_personas.iterrows()):
-                print(f"Patient {patient_i}:", end  = " ")
-    
+                logger.info(f"Patient {patient_i}: generating notes...")
+
                 journey_row = [json.loads(journey) for journey in journey_row if journey is not None]
                 persona_row = json.loads(persona_row.iloc[0])
                 patient_row = clean_patient_details(patient_row)
@@ -1376,8 +1377,8 @@ class generate_clinical_notes():
                         json.loads(item) if isinstance(item, str) else item
                     ).items()
                 }
-    
-                print("Generating Notes...", end = " ")
+
+                logger.info("Generating Notes...")
                 raw_notes = await self.generate_clinical_notes(self.model, patient_row, journey_row, self.document_templates, list_of_staff_personas)
                 notes = clean_outputs(raw_notes,"dictionary",self.model)
                 for note in notes:
@@ -1389,47 +1390,47 @@ class generate_clinical_notes():
                                 note["Issues"][issue] = clean_outputs([details], "list", self.model)[0]
                 notes, removed_ids = remove_failures(notes)
                 if removed_ids:
-                    print(f"Note {removed_ids} removed due to incorrect json compilation")
-    
-                print("Validating Notes...", end = " ")
+                    logger.warning(f"Note {removed_ids} removed due to incorrect json compilation")
+
+                logger.info("Validating Notes...")
                 all_changes = 0
                 for i in range(PARAMS["pipeline_config"]["LLM_validator_iterations_clinical_note"]):
                     validated_notes = await self.validate_responses(self.model, notes, journey_row, patient_row, document_templates)
                     clean_validated_notes = clean_outputs(validated_notes, "dictionary", self.model)
                     clean_validated_notes, removed_ids = remove_failures(clean_validated_notes, replace_list = notes) # if note is a failure, replace with non-validated
                     if removed_ids:
-                        print(f"Note {removed_ids} could not be validated in validator iteration {i} due to incorrect json compilation")
-                        
+                        logger.warning(f"Note {removed_ids} could not be validated in validator iteration {i} due to incorrect json compilation")
+
                     notes = clean_outputs([val_note.get("content", note) for val_note, note in zip(clean_validated_notes, notes)], "dictionary", self.model) # If note has no content key, replace with orignal note.
                     all_changes += sum([1 for note in clean_validated_notes if note.get("changes", False) in (True, "True")]) # changes not always a valid key, LLM outputs it incorrectly.
-                print(f"Estimated {all_changes} changes...", end = " ")
-    
+                logger.info(f"Estimated {all_changes} changes")
+
                 if self.combine_sections:
                     combined_notes = []
-                    print("Combining sections...", end = " ")
+                    logger.info("Combining sections...")
                     staff_members = [event["staff"].strip("[]").split(",")[0] if isinstance(event["staff"], str) else event["staff"][0] for event in journey_row]
                     sections_to_combine = [list_of_staff_personas.get(staff_member).get("template_combine_sections").get(j.get("event_type"))
                                           for j, staff_member in zip(journey_row, staff_members)]
                     for note, sections in zip(notes, sections_to_combine):
                         for section, combine_sections in sections.items():
                             try:
-                                 note = combine_template_sections(section, combine_sections, note)
+                                note = combine_template_sections(section, combine_sections, note)
                             except:
-                                print(f"failed to combine note sections: {sections_to_combine}")
+                                logger.warning(f"failed to combine note sections: {sections_to_combine}")
                         combined_notes.append(note)
-                    
+
                     notes = combined_notes
-    
+
                 final_patient_documents.append([json.dumps(n) for n in notes])
-                
-            print("DONE")
+
+            logger.info("Note generation DONE")
             self.final_patient_notes_df = pd.DataFrame(final_patient_documents)
-            
+
             if return_output:
                 return final_patient_documents
 
         else:
-            print("SKIPPING NOTE GENERATION")
+            logger.info("SKIPPING NOTE GENERATION")
 
     def write_patient_documents_to_dataset(self):
         
@@ -1498,15 +1499,15 @@ class add_augmentations():
             for item in persona_row.values():
                 list_of_staff_personas.update(json.loads(item))
 
-            print(f"Patient {notes_i}")
+            logger.info(f"Patient {notes_i}: augmenting notes")
             augmented_notes = []
 
             for note_i, note in enumerate([n for n in notes_row if n is not None]):
-                print(f"Note: {note_i}:", end = " ")
+                logger.info(f"Note {note_i}: augmenting")
                 note = json.loads(note)
 
                 if "FAILURE" not in note.keys() and any([self.add_abbreviations_to_content,
-                                                    self.add_abbreviations_to_headings,	
+                                                    self.add_abbreviations_to_headings,
                                                     self.add_signature]):
 
                     if isinstance(journey_row[note_i]["staff"], list):
@@ -1524,32 +1525,30 @@ class add_augmentations():
                             staff_persona["abbreviates_content"],
                             staff_persona["abbreviates_headers"]
                         )
-                
-                        print(f"Added (Estimated) {total_number_of_abbreviations} Abbreviations.", end = " ")
-                
+
+                        logger.info(f"Added (estimated) {total_number_of_abbreviations} abbreviations")
+
                     if self.typo_rate > 0:
-                        # if PARAMS["pipeline_config"]["bias_testing"] is not None:
-                        #     print("WARNING: We reccomend setting typo_rate to 0 if testing for bias as typos are randomly generated")
                         personal_typo_rate = staff_persona["typo_rate"] * self.typo_rate
                         note, total_number_of_typos = add_typos_to_dict(note, personal_typo_rate, CONFIG["sections_to_ignore_typos"])
-                        print(f"Added {total_number_of_typos} typos.")
+                        logger.info(f"Added {total_number_of_typos} typos")
 
                     if self.add_signature:
                         staff_member_id = list_of_staff_personas[staff_member]["id"]
                         note = add_sign_off_to_note(note,
                                                     staff_member,
                                                     staff_member_id)
-            
+
                     augmented_notes.append(json.dumps(note))
 
                 else:
-                    print("Skipping, note failed to generate")
-                    
+                    logger.warning("Skipping note — failed to generate")
+
             clean_final_patient_documents.append(augmented_notes)
 
         self.clean_final_patient_df = pd.DataFrame(clean_final_patient_documents)
-                
-        print("DONE")
+
+        logger.info("Augmentation DONE")
         if return_output:
             return clean_final_patient_documents
 
@@ -1593,7 +1592,7 @@ class save_final_outputs():
         self.add_abbreviations_to_headings = add_abbreviations_to_headings if add_abbreviations_to_headings is not None else PARAMS["pipeline_config"]["add_abbreviations_to_headings"]
         self.add_signature = add_signature if add_signature is not None else PARAMS["pipeline_config"]["add_signature"]
         self.filter_journeys = filter_journey if filter_journey is not None else PARAMS["pipeline_config"]["filter_journey"]
-        self.generate_patient_information = generate_patient_information if generate_patient_information is not None else  PARAMS["pipeline_config"]["generate_patient_information"],
+        self.generate_patient_information = generate_patient_information if generate_patient_information is not None else PARAMS["pipeline_config"]["generate_patient_information"]
         self.site_name = site_name if site_name is not None else PARAMS["pipeline_config"]["site_name"]
         self.site_code = site_code if site_code is not None else PARAMS["pipeline_config"]["site_code"]
         # Data
@@ -1629,7 +1628,7 @@ class save_final_outputs():
         evaluation_output_data = []
         journey_metrics = []
 
-        print("Preparing data...", end = " ")
+        logger.info("Preparing data...")
         for patient_admission, (journey_i, journey_row), (notes_i, notes_row) in zip(
             self.patients_and_admissions, self.journeys.iterrows(), self.clinical_notes.iterrows()):
 
@@ -1683,7 +1682,7 @@ class save_final_outputs():
         evaluation_output_df = normalise_array_struct_column(evaluation_output_df, "journey") # journey is the only struct where this might occur.
         
         # Saving
-        print("Saving Data...", end  = " ")
+        logger.info("Saving data...")
         if self.generate_patient_information:
             write_dataset(patients_output_data, "patients_output")
         write_dataset(admissions_output_data, "admissions")
@@ -1692,4 +1691,4 @@ class save_final_outputs():
         write_dataset(notes_output_data, "clinical_notes")
         write_dataset(evaluation_output_df, "journeys")
 
-        print("DONE")
+        logger.info("Save DONE")

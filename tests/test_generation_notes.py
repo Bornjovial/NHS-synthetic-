@@ -1,9 +1,8 @@
 import pytest
 from copy import deepcopy
 
-from src.doc_templates import  document_templates, template_sections_to_combine
-from src.processing import pop_nested_value, combine_template_sections, pop_nested_value
-from src.doc_templates import document_templates
+from src.doc_templates import document_templates, template_sections_to_combine
+from src.processing import pop_nested_value, combine_template_sections
 
 def test_possible_combine_sections():
     """
