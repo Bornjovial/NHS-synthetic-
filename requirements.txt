@@ -2,9 +2,8 @@
 
 # Note - You may also need to add/remove libraries depending on how you adapt your `call_llm` and `read_write_data` functions.
 
-palantir_models
+openai
 ipykernel
-foundry-transforms-lib-python
 pandas
 matplotlib
 pytest-asyncio

@@ -15,12 +15,10 @@ import time
 from contextvars import ContextVar
 import ast
 
-# FOUNDRY SPECIFIC IMPORTS
+from openai import OpenAI
+import logging
 
-from foundry.transforms import Dataset
-from language_model_service_api.languagemodelservice_api_completion_v3 import GptChatCompletionRequest
-from language_model_service_api.languagemodelservice_api import ChatMessage, ChatMessageRole
-from palantir_models.models import OpenAiGptChatLanguageModel
+logger = logging.getLogger(__name__)
 
 _loop_semaphore: ContextVar[asyncio.Semaphore] = ContextVar("_loop_semaphore", default=None)
 
@@ -44,8 +42,8 @@ def call_llm(prompt: str, model: str = "GPT_4o", temp: float = 0.7, max_attempts
     prompt : str
         The user prompt appended as the latest message in the conversation.
 
-    model : object
-        Model client implementing `create_chat_completion(request)`.
+    model : str
+        Model name to pass to the OpenAI-compatible API endpoint.
 
     temp : float, default=0.7
         Sampling temperature controlling response randomness.
@@ -63,33 +61,30 @@ def call_llm(prompt: str, model: str = "GPT_4o", temp: float = 0.7, max_attempts
     str
         Raw text content from the model response, or None if all attempts fail.
     """
-    try:
-        model = OpenAiGptChatLanguageModel.get(model)
-    except:
-        raise Exception(f"No model called {model}")
-    
+    from config.config import LLM_BASE_URL, LLM_API_KEY
+    client = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+
     if not chat_history:
-        request = GptChatCompletionRequest([
-            ChatMessage(ChatMessageRole.USER, prompt)
-        ], temperature = temp)
+        messages = [{"role": "user", "content": prompt}]
     else:
-        history = [ChatMessage(ChatMessageRole.USER, chat_history[i]) if i%2 == 0 else ChatMessage(ChatMessageRole.ASSISTANT, chat_history[i]) for i in range(len(chat_history))]
-        request = GptChatCompletionRequest(
-            history + [ChatMessage(ChatMessageRole.USER, prompt)],
-            temperature = temp)
-        
-    # Call the LLM
+        messages = [
+            {"role": "user" if i % 2 == 0 else "assistant", "content": chat_history[i]}
+            for i in range(len(chat_history))
+        ]
+        messages.append({"role": "user", "content": prompt})
+
     for attempt in range(max_attempts):
         try:
-            response = model.create_chat_completion(request)
-            raw_content = response.choices[0].message.content
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temp,
+            )
+            return response.choices[0].message.content
         except Exception as e:
-            print(f"LLM call failed with error: {e} on attempt {attempt + 1}/{max_attempts}. Retrying...")
+            logger.warning(f"LLM call failed with error: {e} on attempt {attempt + 1}/{max_attempts}. Retrying...")
             time.sleep(1)
-        else:
-            return raw_content
-    else:
-        print (f"Failed after {max_attempts} attempts.")
+    logger.error(f"Failed after {max_attempts} attempts.")
 
 
 def read_write_data(table_name: str, read_or_write: str, data: pd.DataFrame = None) -> pd.DataFrame:
@@ -123,10 +118,16 @@ def read_write_data(table_name: str, read_or_write: str, data: pd.DataFrame = No
         without providing `data`.
     """
 
+    import pathlib
+    from config.config import DATA_DIR, OUTPUT_DIR
+
     if read_or_write == "read":
-        return Dataset.get(table_name).read_table(format="pandas")
+        path = pathlib.Path(DATA_DIR) / f"{table_name}.csv"
+        return pd.read_csv(path)
     elif read_or_write == "write" and data is not None:
-        Dataset.get(table_name).write_table(data)
+        path = pathlib.Path(OUTPUT_DIR) / f"{table_name}.csv"
+        pathlib.Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+        data.to_csv(path, index=False)
     else:
         raise Exception("Error: Check read_or_write is one of 'read' or 'write' and data is not None")
 
@@ -172,7 +173,7 @@ def remove_failures(list_to_clean, item_type = "item", replace_list = None):
                 cleaned_list.append(replace_list[i])
             else:
                 cleaned_list.append(None)
-                print(f"Removing {item_type} at index {i} due to incorrectly compiled JSON")
+                logger.warning(f"Removing {item_type} at index {i} due to incorrectly compiled JSON")
         else:
             cleaned_list.append(item)
     return cleaned_list, removed_items
@@ -186,7 +187,7 @@ def clean_outputs(raw_outputs: list, cleaning_type: str, model = None, verbose =
     """
     
     if cleaning_type not in ["dictionary", "list"]:
-        print("Invalid cleaning_type")
+        logger.error("Invalid cleaning_type")
         return None
     
     clean_outputs = {i: None for i in range(len(raw_outputs))}
@@ -236,11 +237,11 @@ def clean_outputs(raw_outputs: list, cleaning_type: str, model = None, verbose =
             except json.JSONDecodeError:
                 raw_outputs[i] = value  # Keep original value, not new_value
                 if verbose:
-                    print(f"Error reading {cleaning_type}, attempting to clean with LLM...")
+                    logger.warning(f"Error reading {cleaning_type}, attempting to clean with LLM...")
                 pass   
         else:
             if verbose:
-                print(f"No {cleaning_type} pattern found in output {i}")
+                logger.warning(f"No {cleaning_type} pattern found in output {i}")
          
     if model is not None:
         raw_outputs_copy = raw_outputs.copy()
@@ -264,13 +265,13 @@ def clean_outputs(raw_outputs: list, cleaning_type: str, model = None, verbose =
                     raise ValueError("No JSON pattern found in LLM output")
                 
             except Exception as e:
-                print(f"Error cleaning with LLM: {e}, returning raw_output:", value)
+                logger.error(f"Error cleaning with LLM: {e}, returning raw_output: {value}")
                 clean_outputs[i] = {"FAILURE": value}
                 
     else:
         raw_outputs_copy = raw_outputs.copy()
         for i, value in raw_outputs_copy.items():
-            print("No model provided, returning raw output:", value)
+            logger.warning(f"No model provided, returning raw output: {value}")
             clean_outputs[i] = {"FAILURE": value}  # Store just the value, not the whole dict
     
     result = [value for key, value in clean_outputs.items()]
@@ -395,7 +396,7 @@ async def add_abbreviations_to_strings(texts, model):
         try:
             results.append((output["text"], clean_int(output["number_of_abbreviations"])))
         except (KeyError, TypeError, ValueError) as e:
-            print(f"Error processing output {i+1}: {e}. Using original text.")
+            logger.warning(f"Error processing output {i+1}: {e}. Using original text.")
             results.append((texts[i], 0)) 
     
     return results
@@ -425,7 +426,7 @@ def add_typos_to_dict(note: dict, typo_rate: float, sections_to_ignore: list):
                     note[key] = note_with_typos
                     total_number_of_typos += number_of_typos
                 except:
-                    print(f"Could not add typo to {key}")
+                    logger.warning(f"Could not add typo to {key}")
                 
     
     return note, total_number_of_typos
@@ -495,7 +496,7 @@ def update_nested_value(d, target_key, extra_value):
                 if isinstance(extra_value, dict):
                     d[key] += "\n"
                     d[key] += "\n".join(f"{k}: {v}" for k, v in extra_value.items())
-                if isinstance(extra_value, str):
+                elif isinstance(extra_value, str):
                     d[key] += f"\n{extra_value}"
         elif isinstance(value, dict):
             update_nested_value(value, target_key, extra_value)
@@ -541,23 +542,23 @@ def clean_patient_details(patient_details: dict):
         try:
             clean_patient_details.pop(field)
         except KeyError:
-            print(f"{field} key not present in patient details")
+            logger.debug(f"{field} key not present in patient details")
             pass
     return clean_patient_details
 
 def clean_event_details(event_details: dict):
     """
-    Removes extraneous information from event details to stop it 
+    Removes extraneous information from event details to stop it
     beinging included in notes.
     """
     fields_to_remove = ["date", "time"]
-    
+
     clean_event_details = event_details.copy()
     for field in fields_to_remove:
         try:
             clean_event_details.pop(field)
         except KeyError:
-            print(f"{field} key not present in patient details")
+            logger.debug(f"{field} key not present in event details")
             pass
     return clean_event_details
 

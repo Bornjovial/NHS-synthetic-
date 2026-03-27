@@ -5,7 +5,7 @@
 PARAMS = {
     "pipeline_config": {
         "TEST_MODE": False, # If True, runs pipeline in test mode and generates one clinical note per patient
-        "model" : "GPT_4o", # The name of the LLM you would like to us.
+        "model" : "qwen2.5:72b", # The name of the LLM served by your local endpoint (e.g. "qwen2.5:72b" for Ollama, "Qwen/Qwen2.5-72B-Instruct-AWQ" for vLLM)
         "generate_patient_information": True, # If True, generate patient information
         "generate_admission_information": True, # If True, generate admission details for patients
         "generate_patient_journey": True, # If True, generate patient journey
@@ -39,11 +39,12 @@ PARAMS = {
         "maximum_patient_age": 90,# Maximum patient age when generating patient admission
         "site_name": "Apple Tree Trust", # None, or name of trust
         "site_code": "APT12", # None, or code of trust
-        "elective_admissions_dataset" : "combined_elective_data", # Name of dataset to read elective admissions
-        "emergency_admissions_dataset" : "disease_x_complaint_stats", # Name of dataset to read emergency admissions
-        "patients_input_dataset" : "patients_v1", # Name of dataset containing patients input data, such as names
+        "elective_admissions_dataset" : "example_elective_admissions_data", # Name of CSV file (without .csv) in DATA_DIR
+        "emergency_admissions_dataset" : "example_emergency_admissions_data", # Name of CSV file (without .csv) in DATA_DIR
+        "patients_input_dataset" : "example_names_input_data", # Name of CSV file (without .csv) in DATA_DIR
     },
 }
 
+import logging
 if PARAMS["pipeline_config"]["TEST_MODE"]:
-    print("TEST MODE ACTIVE")
+    logging.getLogger(__name__).info("TEST MODE ACTIVE")
