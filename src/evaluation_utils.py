@@ -1,5 +1,8 @@
+import logging
 import textstat
 import asyncio
+
+logger = logging.getLogger(__name__)
 from src.processing import call_llm_async
 from src.prompts import evaluation_prompts
 from config.params import PARAMS
@@ -12,7 +15,7 @@ def calculate_readability_score(note: str, readability_type: str):
         elif readability_type == "dale_chall_readability_score":
             return textstat.dale_chall_readability_score(clean_note)
     except:
-        print("Error calculating readability score")
+        logger.error("Error calculating readability score")
         return None
 
     
@@ -25,10 +28,10 @@ async def calculate_fluency(notes, temperature = 0):
         for note in notes
     ]
 
-    tasks = [call_llm_async(prompt, PARAMS["pipeline_config"]["model"]) for prompt in prompts]
-    
+    tasks = [call_llm_async(prompt, PARAMS["pipeline_config"]["model"], temperature) for prompt in prompts]
+
     raw_response = await asyncio.gather(*tasks)
-    
+
     return raw_response
 
 
@@ -42,13 +45,13 @@ async def calculate_groundedness(notes, event, patient_info, temperature = 0):
         )
         for note in notes
     ]
-    
-    tasks = [call_llm_async(prompt, PARAMS["pipeline_config"]["model"]) for prompt in prompts]
-    
+
+    tasks = [call_llm_async(prompt, PARAMS["pipeline_config"]["model"], temperature) for prompt in prompts]
+
     raw_response = await asyncio.gather(*tasks)
-    
+
     return raw_response
-    
+
 
 async def calculate_relevance(notes, event, patient_info, temperature = 0):
 
@@ -60,8 +63,8 @@ async def calculate_relevance(notes, event, patient_info, temperature = 0):
         )
         for note in notes
     ]
-        
-    tasks = [call_llm_async(prompt, PARAMS["pipeline_config"]["model"]) for prompt in prompts]
+
+    tasks = [call_llm_async(prompt, PARAMS["pipeline_config"]["model"], temperature) for prompt in prompts]
     
     raw_response = await asyncio.gather(*tasks)
     

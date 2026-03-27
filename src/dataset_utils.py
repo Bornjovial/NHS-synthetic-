@@ -1,5 +1,8 @@
 import json
+import logging
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 import uuid
 import pandas as pd
 from src.schemas import patient_schema, encounter_schema, admission_schema, note_schema, schema_dict
@@ -178,7 +181,7 @@ def write_dataset(data_dicts, dataset_name, append=False):
     """
     Takes a list of dictionaries and writes to the dataset with name dataset_name.
     """
-    print(f"Writing to {dataset_name} dataset")
+    logger.info(f"Writing to {dataset_name} dataset")
     
     if dataset_name in schema_dict.keys():
         schema = schema_dict[dataset_name]
@@ -190,10 +193,7 @@ def write_dataset(data_dicts, dataset_name, append=False):
         existing_df = read_write_data(dataset_name, "read")
         df = pd.concat([existing_df, df], ignore_index=True)
         
-        # Bug fix, may be able to remove later once ran in master
         if "journey" in df.columns:
-            
-            if "journey" in df.columns:
             # Convert all journey values to JSON-safe strings
                 
                 def to_json_safe(val):
@@ -218,7 +218,7 @@ def write_dataset(data_dicts, dataset_name, append=False):
 
     read_write_data(dataset_name, "write", df)
     
-    print(f"Successfully wrote to {dataset_name} dataset")
+    logger.info(f"Successfully wrote to {dataset_name} dataset")
 
     
 def format_note(cleaned_note_dictionary):
