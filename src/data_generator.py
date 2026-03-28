@@ -822,7 +822,7 @@ class generate_journeys():
                     EVENT_TYPE = event["event_type"],
                     EVENT_TYPE_DESCRIPTION = event_type_description,
                     ADMISSION_DATE = admission_date,
-                    DISCHARE_DATE = discharge_date_string,
+                    DISCHARGE_DATE = discharge_date_string,
                     CURRENT_DATE = event["date"],
                     CURRENT_TIME = event["time"],
                     DAYS_LEFT = days_left,

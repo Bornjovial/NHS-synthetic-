@@ -147,16 +147,22 @@ ABBREVIATION_RESPONSE = json.dumps({
 def _llm_response_for(prompt: str) -> str:
     """Return an appropriate fixture response based on prompt content."""
     prompt_lower = prompt.lower() if prompt else ""
+    # Journey completeness check — prompt contains "terminated early"
+    if "terminated early" in prompt_lower:
+        return JOURNEY_COMPLETE_RESPONSE
     if "length of stay" in prompt_lower or "los" in prompt_lower:
         return ADMISSION_LOS_RESPONSE
-    if "discharge" in prompt_lower and "complete" in prompt_lower:
-        return JOURNEY_COMPLETE_RESPONSE
     if "validate" in prompt_lower or "validation" in prompt_lower:
         return JOURNEY_VALIDATION_RESPONSE
-    if "staff" in prompt_lower and "detail" in prompt_lower:
-        return EVENT_DETAILS_RESPONSE
+    # Clinical note prompts — check before event details (both mention "staff")
+    # The clinical note prompt contains "note_subject" in the output format
+    if "note_subject" in prompt_lower or "clinical notes for nhs" in prompt_lower:
+        return CLINICAL_NOTE_RESPONSE
     if "abbreviat" in prompt_lower:
         return ABBREVIATION_RESPONSE
+    # Event details prompt — explicitly asks for staff/details/next_steps
+    if "next_steps_decision" in prompt_lower or ("staff" in prompt_lower and "detail" in prompt_lower):
+        return EVENT_DETAILS_RESPONSE
     if "journey" in prompt_lower or "event" in prompt_lower:
         return JOURNEY_LLM_RESPONSE
     if "admission" in prompt_lower:
