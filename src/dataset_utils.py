@@ -190,8 +190,11 @@ def write_dataset(data_dicts, dataset_name, append=False):
         df = pd.DataFrame(data_dicts)
 
     if append:
-        existing_df = read_write_data(dataset_name, "read")
-        df = pd.concat([existing_df, df], ignore_index=True)
+        try:
+            existing_df = read_write_data(dataset_name, "read")
+            df = pd.concat([existing_df, df], ignore_index=True)
+        except FileNotFoundError:
+            pass  # No existing file — write fresh
         
         if "journey" in df.columns:
             # Convert all journey values to JSON-safe strings

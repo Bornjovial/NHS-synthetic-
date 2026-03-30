@@ -47,7 +47,7 @@ def generate_random_person(
         names = patient_df[["GENDER", "FIRST", "MIDDLE", "LAST"]].sample(1).values[0]
         
     person_gender = names[0]
-    clean_names = [name for name in names[1:] if name is not None]
+    clean_names = [name for name in names[1:] if name is not None and isinstance(name, str)]
     person_name = ' '.join(clean_names)
     
     if last_name_only:
