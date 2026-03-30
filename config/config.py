@@ -11,9 +11,11 @@ import os
 LLM_BASE_URL = "http://localhost:11434/v1"
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "not-needed")
 
-# Local filesystem paths for input data and generated outputs
-DATA_DIR = "./data"
-OUTPUT_DIR = "./output"
+# Local filesystem paths for input data and generated outputs.
+# Resolved relative to this file so they work regardless of process CWD.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(_REPO_ROOT, "data")
+OUTPUT_DIR = os.path.join(_REPO_ROOT, "output")
 
 
 CONFIG = {
