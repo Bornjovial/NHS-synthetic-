@@ -9,19 +9,36 @@ import math
 import typo
 from datetime import datetime, timedelta
 from datetime import time as dt_time
-from copy import deepcopy 
+from copy import deepcopy
 import asyncio
 import time
 from contextvars import ContextVar
 import ast
 
 import os
+import pathlib
 from openai import OpenAI
 import logging
 
 logger = logging.getLogger(__name__)
 
-_loop_semaphore: ContextVar[asyncio.Semaphore] = ContextVar("_loop_semaphore", default=None)
+_loop_semaphore: ContextVar[asyncio.Semaphore] = ContextVar(
+    "_loop_semaphore", default=None
+)
+_openai_client: OpenAI | None = None
+
+
+def _get_client() -> OpenAI:
+    """Return a module-level OpenAI client, creating it on first call."""
+    global _openai_client
+    if _openai_client is None:
+        from config.config import LLM_BASE_URL, LLM_API_KEY
+
+        _openai_client = OpenAI(
+            base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=1200.00
+        )
+    return _openai_client
+
 
 # FOUNDRY SPECIFIC FUNCTIONS
 
@@ -30,7 +47,14 @@ _loop_semaphore: ContextVar[asyncio.Semaphore] = ContextVar("_loop_semaphore", d
 # 1 - call_llm
 # 2 - read_writ
 
-def call_llm(prompt: str, model: str = "GPT_4o", temp: float = 0.7, max_attempts: int = 3, chat_history = None) -> str:
+
+def call_llm(
+    prompt: str,
+    model: str = "GPT_4o",
+    temp: float = 0.7,
+    max_attempts: int = 3,
+    chat_history=None,
+) -> str:
     """
     Send a prompt to a chat-based LLM and return the model's text response.
 
@@ -62,8 +86,7 @@ def call_llm(prompt: str, model: str = "GPT_4o", temp: float = 0.7, max_attempts
     str
         Raw text content from the model response, or None if all attempts fail.
     """
-    from config.config import LLM_BASE_URL, LLM_API_KEY
-    client = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+    client = _get_client()
 
     if not chat_history:
         messages = [{"role": "user", "content": prompt}]
@@ -74,21 +97,37 @@ def call_llm(prompt: str, model: str = "GPT_4o", temp: float = 0.7, max_attempts
         ]
         messages.append({"role": "user", "content": prompt})
 
+    from config.params import PARAMS
+
+    num_ctx = PARAMS["pipeline_config"].get("llm_num_ctx")
+    max_tokens = PARAMS["pipeline_config"].get("llm_max_tokens")
+
     for attempt in range(max_attempts):
         try:
             response = client.chat.completions.create(
                 model=model,
                 messages=messages,
                 temperature=temp,
+                max_tokens=max_tokens,
+                extra_body={
+                    "options": {
+                        **({"num_ctx": num_ctx} if num_ctx is not None else {}),
+                        **({"num_predict": max_tokens} if max_tokens is not None else {}),
+                    }
+                },
             )
             return response.choices[0].message.content
         except Exception as e:
-            logger.warning(f"LLM call failed with error: {e} on attempt {attempt + 1}/{max_attempts}. Retrying...")
+            logger.warning(
+                f"LLM call failed with error: {e} on attempt {attempt + 1}/{max_attempts}. Retrying..."
+            )
             time.sleep(1)
     logger.error(f"Failed after {max_attempts} attempts.")
 
 
-def read_write_data(table_name: str, read_or_write: str, data: pd.DataFrame = None) -> pd.DataFrame:
+def read_write_data(
+    table_name: str, read_or_write: str, data: pd.DataFrame = None
+) -> pd.DataFrame:
     """
     Read from or write a pandas DataFrame to a dataset table.
 
@@ -119,11 +158,14 @@ def read_write_data(table_name: str, read_or_write: str, data: pd.DataFrame = No
         without providing `data`.
     """
 
-    import pathlib
     from config.config import DATA_DIR, OUTPUT_DIR
 
     if read_or_write == "read":
-        path = pathlib.Path(DATA_DIR) / f"{table_name}.csv"
+        # Intermediate files are written to OUTPUT_DIR; input datasets live in DATA_DIR.
+        # Check OUTPUT_DIR first so pipeline stages can read each other's outputs.
+        output_path = pathlib.Path(OUTPUT_DIR) / f"{table_name}.csv"
+        data_path = pathlib.Path(DATA_DIR) / f"{table_name}.csv"
+        path = output_path if output_path.exists() else data_path
         return pd.read_csv(path)
     elif read_or_write == "write" and data is not None:
         path = pathlib.Path(OUTPUT_DIR) / f"{table_name}.csv"
@@ -132,20 +174,26 @@ def read_write_data(table_name: str, read_or_write: str, data: pd.DataFrame = No
         data.to_csv(tmp_path, index=False)
         os.replace(tmp_path, path)
     else:
-        raise Exception("Error: Check read_or_write is one of 'read' or 'write' and data is not None")
+        raise Exception(
+            "Error: Check read_or_write is one of 'read' or 'write' and data is not None"
+        )
 
     return None
+
 
 # NON FOUNDRY SPECIFIC FUNCTIONS
 
 
-async def call_llm_async(prompt: str, model, temp: float = 0.7, max_attempts: int = 3, chat_history = None):
+async def call_llm_async(
+    prompt: str, model, temp: float = 0.7, max_attempts: int = 3, chat_history=None
+):
     """
     Async wrapper for the synchronous LLM call, limited to 'llm_semaphore' concurrent calls.
     """
     sem = _loop_semaphore.get()
     if sem is None:
         from config.params import PARAMS
+
         concurrency = PARAMS["pipeline_config"].get("llm_concurrency", 8)
         sem = asyncio.Semaphore(concurrency)
         _loop_semaphore.set(sem)
@@ -154,9 +202,9 @@ async def call_llm_async(prompt: str, model, temp: float = 0.7, max_attempts: in
         return await asyncio.to_thread(
             call_llm, prompt, model, temp, max_attempts, chat_history
         )
-    
 
-def remove_failures(list_to_clean, item_type = "item", replace_list = None):
+
+def remove_failures(list_to_clean, item_type="item", replace_list=None):
     """
     Removes or replaces dicts containing a 'FAILURE' key.
 
@@ -178,63 +226,66 @@ def remove_failures(list_to_clean, item_type = "item", replace_list = None):
                 cleaned_list.append(replace_list[i])
             else:
                 cleaned_list.append(None)
-                logger.warning(f"Removing {item_type} at index {i} due to incorrectly compiled JSON")
+                logger.warning(
+                    f"Removing {item_type} at index {i} due to incorrectly compiled JSON"
+                )
         else:
             cleaned_list.append(item)
     return cleaned_list, removed_items
 
-def clean_outputs(raw_outputs: list, cleaning_type: str, model = None, verbose = False):
+
+def clean_outputs(raw_outputs: list, cleaning_type: str, model=None, verbose=False):
     """
     Tries to parse a list of raw strings into a list of valid JSON object. For each string, if the output is not valid JSON,
     it attempts to extract the JSON substring using regex and then an LLM.
-    
+
     cleaning_type is the data format you want returned, either "list" or "dictionary"
     """
-    
+
     if cleaning_type not in ["dictionary", "list"]:
         logger.error("Invalid cleaning_type")
         return None
-    
+
     clean_outputs = {i: None for i in range(len(raw_outputs))}
     raw_outputs = {i: output for i, output in enumerate(raw_outputs)}
-    
+
     raw_outputs_copy = raw_outputs.copy()
     for i, value in raw_outputs_copy.items():
         if not isinstance(value, str):
-            if (cleaning_type == "list" and isinstance(value, list)) or \
-               (cleaning_type == "dictionary" and isinstance(value, dict)):
+            if (cleaning_type == "list" and isinstance(value, list)) or (
+                cleaning_type == "dictionary" and isinstance(value, dict)
+            ):
                 clean_outputs[i] = value
             else:
                 clean_outputs[i] = None
             raw_outputs.pop(i)
             continue
-        cleaning_steps = [       # Order matters
-            (r'//.*', ''),       # remove // comments
-            (r'# .*', ''),       # remove # comments
-            (r'```', ''),        # remove ```
-            (r'json', ''),       # remove json
-            (r'\.\.\.', ''),     # remove ...
-            (r'python', ''),     # remove python
-            (r'},\s*\]', '}]')  # fix trailing comma before ]
+        cleaning_steps = [  # Order matters
+            (r"//.*", ""),  # remove // comments
+            (r"# .*", ""),  # remove # comments
+            (r"```", ""),  # remove ```
+            (r"json", ""),  # remove json
+            (r"\.\.\.", ""),  # remove ...
+            (r"python", ""),  # remove python
+            (r"},\s*\]", "}]"),  # fix trailing comma before ]
         ]
-        
+
         for pattern, replacement in cleaning_steps:
             value = re.sub(pattern, replacement, value)
         new_value = value
-        
+
         try:
             clean_outputs[i] = json.loads(new_value)
             raw_outputs.pop(i)
         except json.JSONDecodeError:
             raw_outputs[i] = new_value
-            pass   
-    
+            pass
+
     raw_outputs_copy = raw_outputs.copy()
     for i, value in raw_outputs_copy.items():
-        
         pattern = r"\{.*\}" if cleaning_type == "dictionary" else r"\[.*\]"
         json_match = re.search(pattern, value, re.DOTALL)
-        
+
         if json_match:
             try:
                 clean_outputs[i] = json.loads(json_match.group())
@@ -242,65 +293,74 @@ def clean_outputs(raw_outputs: list, cleaning_type: str, model = None, verbose =
             except json.JSONDecodeError:
                 raw_outputs[i] = value  # Keep original value, not new_value
                 if verbose:
-                    logger.warning(f"Error reading {cleaning_type}, attempting to clean with LLM...")
-                pass   
+                    logger.warning(
+                        f"Error reading {cleaning_type}, attempting to clean with LLM..."
+                    )
+                pass
         else:
             if verbose:
                 logger.warning(f"No {cleaning_type} pattern found in output {i}")
-         
+
     if model is not None:
         raw_outputs_copy = raw_outputs.copy()
         for i, value in raw_outputs_copy.items():
             try:
                 prompt = processing_prompts["clean_outputs_prompt"].substitute(
-                    CLEANING_TYPE = cleaning_type,
-                    VALUE = value
+                    CLEANING_TYPE=cleaning_type, VALUE=value
                 )
                 llm_output = call_llm(prompt, model)
-                        
+
                 for pattern, replacement in cleaning_steps:
                     llm_output = re.sub(pattern, replacement, llm_output)
-                
+
                 pattern = r"\{.*\}" if cleaning_type == "dictionary" else r"\[.*\]"
                 json_match = re.search(pattern, llm_output, re.DOTALL)
-                
+
                 if json_match:
                     clean_outputs[i] = json.loads(json_match.group())
                 else:
                     raise ValueError("No JSON pattern found in LLM output")
-                
+
             except Exception as e:
-                logger.error(f"Error cleaning with LLM: {e}, returning raw_output: {value}")
+                logger.error(
+                    f"Error cleaning with LLM: {e}, returning raw_output: {value}"
+                )
                 clean_outputs[i] = {"FAILURE": value}
-                
+
     else:
         raw_outputs_copy = raw_outputs.copy()
         for i, value in raw_outputs_copy.items():
             logger.warning(f"No model provided, returning raw output: {value}")
-            clean_outputs[i] = {"FAILURE": value}  # Store just the value, not the whole dict
-    
+            clean_outputs[i] = {
+                "FAILURE": value
+            }  # Store just the value, not the whole dict
+
     result = [value for key, value in clean_outputs.items()]
-    
+
     return result
-        
+
+
 def clean_int(raw_output):
     """Clean an LLM output into an integer"""
-    
+
     try:
         return int(raw_output)
     except ValueError:
         pass
 
     try:
-        match = re.search(r'-?\d+', raw_output)
+        match = re.search(r"-?\d+", raw_output)
         if match:
             return int(match.group())
     except Exception:
         pass
 
-    return random.randint(0,30)
+    return random.randint(0, 30)
 
-async def add_abbreviations_to_dict(note, model, sections_to_ignore, add_to_content, add_to_headings):
+
+async def add_abbreviations_to_dict(
+    note, model, sections_to_ignore, add_to_content, add_to_headings
+):
     """
     Iterates over a nested note dictionary, adding abbreviations to values and/or keys.
     - Processes nested dicts fully.
@@ -334,14 +394,18 @@ async def add_abbreviations_to_dict(note, model, sections_to_ignore, add_to_cont
 
     total_abbreviations = 0
     if strings_to_process:
-        processed_strings = await add_abbreviations_to_strings(strings_to_process, model)
+        processed_strings = await add_abbreviations_to_strings(
+            strings_to_process, model
+        )
         total_abbreviations = sum(num for _, num in processed_strings)
     else:
         processed_strings = []
 
     heading_updates = {}
     content_updates = {}
-    for (string_type, path), (processed_text, num) in zip(string_metadata, processed_strings):
+    for (string_type, path), (processed_text, num) in zip(
+        string_metadata, processed_strings
+    ):
         tup = tuple(path)
         if string_type == "heading":
             heading_updates[tup] = processed_text
@@ -380,104 +444,115 @@ async def add_abbreviations_to_strings(texts, model):
     """
     if not texts:
         return []
-    
+
     # Create prompts for all texts
     prompts = []
     for text in texts:
-        prompts.append(processing_prompts["add_abbreviations_prompt"].substitute(
-            TEXT = text
-        ))
-        
+        prompts.append(
+            processing_prompts["add_abbreviations_prompt"].substitute(TEXT=text)
+        )
+
     # Pass list of prompts to call_llm_async
     tasks = [call_llm_async(prompt, model) for prompt in prompts]
-    
+
     outputs = await asyncio.gather(*tasks)
-    
+
     # Clean and process outputs
     cleaned_outputs = clean_outputs(outputs, "dictionary", model)
-    
+
     results = []
     for i, output in enumerate(cleaned_outputs):
         try:
-            results.append((output["text"], clean_int(output["number_of_abbreviations"])))
+            results.append(
+                (output["text"], clean_int(output["number_of_abbreviations"]))
+            )
         except (KeyError, TypeError, ValueError) as e:
-            logger.warning(f"Error processing output {i+1}: {e}. Using original text.")
-            results.append((texts[i], 0)) 
-    
+            logger.warning(
+                f"Error processing output {i + 1}: {e}. Using original text."
+            )
+            results.append((texts[i], 0))
+
     return results
-    
+
 
 def add_typos_to_dict(note: dict, typo_rate: float, sections_to_ignore: list):
     """
     Iterates over a nested note dictionary, adding typos to values but not keys. The typo_rate is the probability a word will have a typo.
     """
     total_number_of_typos = 0
-    
+
     for key, value in note.items():
         if isinstance(value, dict):
-            note[key], number_of_typos = add_typos_to_dict(value, typo_rate, sections_to_ignore)
+            note[key], number_of_typos = add_typos_to_dict(
+                value, typo_rate, sections_to_ignore
+            )
             total_number_of_typos += number_of_typos
-            
+
         else:
-            
             if not isinstance(value, str):
                 text = str(note[key])
             else:
                 text = note[key]
-            
+
             if (key != "note_subject") and (key not in sections_to_ignore):
                 try:
-                    note_with_typos, number_of_typos = add_typos_to_string(text, typo_rate)
+                    note_with_typos, number_of_typos = add_typos_to_string(
+                        text, typo_rate
+                    )
                     note[key] = note_with_typos
                     total_number_of_typos += number_of_typos
                 except:
                     logger.warning(f"Could not add typo to {key}")
-                
-    
+
     return note, total_number_of_typos
+
 
 def add_typos_to_string(note, typo_rate):
     """
     Adds typos to a string. The typo_rate is the probability a word will have a typo.
     """
-    
+
     number_of_words = len(note.split(" "))
     note_obj = typo.StrErrer(note)
-    
+
     # Calculate the number of iterations to apply typos based on typo_rate.
     iterations = math.floor(number_of_words * typo_rate)
     remainder = (number_of_words * typo_rate) % 1
     if remainder > 0 and random.random() < remainder:
         iterations += 1
-    
-    typo_methods  = ["char_swap",
-                    "missing_char", 
-                    "extra_char", 
-                    "nearby_char", 
-                    "skipped_space", 
-                    "random_space",
-                    "repeated_char",
-                    "unichar"]
-    
+
+    typo_methods = [
+        "char_swap",
+        "missing_char",
+        "extra_char",
+        "nearby_char",
+        "skipped_space",
+        "random_space",
+        "repeated_char",
+        "unichar",
+    ]
+
     for _ in range(iterations):
         typo_type = random.choice(typo_methods)
         typo_method = getattr(note_obj, typo_type)
         typo_method()
-        
+
     return note_obj.result, iterations
+
 
 def combine_template_sections(new_section, combine_sections, note):
     """
-    Combines sections in a note. 
+    Combines sections in a note.
     If the sections to be combined includes a dictionary then the new
     section will be in dictionary format. Otherwise simply concatenated
     the subsidiary section descriptions.
-    """    
+    """
     for section in combine_sections:
         extra_value = pop_nested_value(note, section)
         update_nested_value(note, new_section, extra_value)
-        
+
     return note
+
 
 def pop_nested_value(d, target_key):
     for key, value in d.items():
@@ -487,6 +562,7 @@ def pop_nested_value(d, target_key):
             result = pop_nested_value(value, target_key)
             if result is not None:
                 return result
+
 
 def update_nested_value(d, target_key, extra_value):
     for key, value in d.items():
@@ -508,41 +584,51 @@ def update_nested_value(d, target_key, extra_value):
 
 
 def combine_patients_and_admissions(patient_df, admission_df):
-    
+
     patients_and_admissions = []
 
     remove_admission_keys = [
-        "diagnosis_confirmed_by", "novel_disease",
+        "diagnosis_confirmed_by",
+        "novel_disease",
     ]
-    
+
+    admissions_by_patient = {
+        json.loads(admission_df.iloc[i, 0])["patient_id"]: json.loads(admission_df.iloc[i, 0])
+        for i in range(len(admission_df))
+    }
+
     for row_index in range(len(patient_df)):
         patient = json.loads(patient_df.iloc[row_index, 0])
-        admission = json.loads(admission_df.iloc[row_index, 0])
-        
+        admission = admissions_by_patient.get(patient["patient_id"])
+        if admission is None:
+            continue
+
         # Remove unwanted keys if they exist
         for key in remove_admission_keys:
             admission.pop(key, None)
-        
-        # Just keep the admission as-is, no swapping logic
+
         joint_details = patient
         joint_details["admission_details"] = admission
         patients_and_admissions.append(joint_details)
-        
+
     return patients_and_admissions
-
-
 
 
 def clean_patient_details(patient_details: dict):
     """
-    Removes extraneous information from patient details to stop it beinging 
+    Removes extraneous information from patient details to stop it beinging
     included in notes.
     """
-    fields_to_remove = ["address", "contact_number", "gp_details", "next_of_kin", 
-                        "medical_record_number"]
-    
+    fields_to_remove = [
+        "address",
+        "contact_number",
+        "gp_details",
+        "next_of_kin",
+        "medical_record_number",
+    ]
+
     clean_patient_details = patient_details.copy()
-    
+
     for field in fields_to_remove:
         try:
             clean_patient_details.pop(field)
@@ -550,6 +636,7 @@ def clean_patient_details(patient_details: dict):
             logger.debug(f"{field} key not present in patient details")
             pass
     return clean_patient_details
+
 
 def clean_event_details(event_details: dict):
     """
@@ -567,90 +654,103 @@ def clean_event_details(event_details: dict):
             pass
     return clean_event_details
 
-def normalise_array_struct_column(df: pd.DataFrame, column: str) -> pd.DataFrame:	
-    """	
-    Normalise a column for PyArrow ARRAY<STRUCT>:	
-    - Converts strings like '[value]' or "['value']" into Python lists	
-    - Converts strings like '["a", "b"]' or '[a, b]' into Python lists	
-    - Wraps scalars as dicts	
-    - Traverses nested dicts inside lists to normalise bracketed strings	
-    """	
-    	
-    bracket_pattern = re.compile(r"^\[(.*)\]$")  # detect strings in brackets	
-    	
-    def normalise_value(x):	
-        if x is None or (isinstance(x, float) and pd.isna(x)):	
-            return None	
-        	
-        # handle list/tuple/np.ndarray	
-        if isinstance(x, (list, tuple, np.ndarray)):	
-            return [normalise_value(e) if isinstance(e, (list, tuple, np.ndarray, dict, str)) else e for e in x]	
-        	
-        # handle dict	
-        if isinstance(x, dict):	
-            out = {}	
-            for k, v in x.items():	
-                if isinstance(v, str):	
-                    s = v.strip()	
-                    # try JSON parse first	
-                    try:	
-                        parsed = json.loads(s)	
-                        out[k] = normalise_value(parsed)	
-                        continue	
-                    except json.JSONDecodeError:	
-                        pass	
-                    # try Python literal (handles single quotes)	
-                    try:	
-                        parsed = ast.literal_eval(s)	
-                        out[k] = normalise_value(parsed)	
-                        continue	
-                    except Exception:	
-                        pass	
-                    # detect bracketed string '[value_a, value_b,...]'	
-                    m = bracket_pattern.match(s)	
-                    if m:	
-                        inner = m.group(1).strip()	
-                        # split by comma if multiple values	
-                        if ',' in inner:	
-                            items = [item.strip().strip('"').strip("'") for item in inner.split(',')]	
-                            out[k] = items	
-                        else:	
-                            out[k] = [inner]	
-                    else:	
-                        out[k] = s	
-                elif isinstance(v, (list, tuple, np.ndarray, dict)):	
-                    out[k] = normalise_value(v)	
-                else:	
-                    out[k] = v	
-            return out	
-        	
-        # handle string	
-        if isinstance(x, str):	
-            s = x.strip()	
-            try:	
-                parsed = json.loads(s)	
-                return normalise_value(parsed)	
-            except json.JSONDecodeError:	
-                try:	
-                    parsed = ast.literal_eval(s)	
-                    return normalise_value(parsed)	
-                except Exception:	
-                    # detect bracketed string '[value_a, value_b,...]'	
-                    m = bracket_pattern.match(s)	
-                    if m:	
-                        inner = m.group(1).strip()	
-                        if ',' in inner:	
-                            items = [item.strip().strip('"').strip("'") for item in inner.split(',')]	
-                            return items	
-                        else:	
-                            return [inner]	
-                    return s	
-        	
-        # fallback for scalar	
-        return x	
-    	
-    df[column] = df[column].apply(normalise_value)	
+
+def normalise_array_struct_column(df: pd.DataFrame, column: str) -> pd.DataFrame:
+    """
+    Normalise a column for PyArrow ARRAY<STRUCT>:
+    - Converts strings like '[value]' or "['value']" into Python lists
+    - Converts strings like '["a", "b"]' or '[a, b]' into Python lists
+    - Wraps scalars as dicts
+    - Traverses nested dicts inside lists to normalise bracketed strings
+    """
+
+    bracket_pattern = re.compile(r"^\[(.*)\]$")  # detect strings in brackets
+
+    def normalise_value(x):
+        if x is None or (isinstance(x, float) and pd.isna(x)):
+            return None
+
+        # handle list/tuple/np.ndarray
+        if isinstance(x, (list, tuple, np.ndarray)):
+            return [
+                normalise_value(e)
+                if isinstance(e, (list, tuple, np.ndarray, dict, str))
+                else e
+                for e in x
+            ]
+
+        # handle dict
+        if isinstance(x, dict):
+            out = {}
+            for k, v in x.items():
+                if isinstance(v, str):
+                    s = v.strip()
+                    # try JSON parse first
+                    try:
+                        parsed = json.loads(s)
+                        out[k] = normalise_value(parsed)
+                        continue
+                    except json.JSONDecodeError:
+                        pass
+                    # try Python literal (handles single quotes)
+                    try:
+                        parsed = ast.literal_eval(s)
+                        out[k] = normalise_value(parsed)
+                        continue
+                    except Exception:
+                        pass
+                    # detect bracketed string '[value_a, value_b,...]'
+                    m = bracket_pattern.match(s)
+                    if m:
+                        inner = m.group(1).strip()
+                        # split by comma if multiple values
+                        if "," in inner:
+                            items = [
+                                item.strip().strip('"').strip("'")
+                                for item in inner.split(",")
+                            ]
+                            out[k] = items
+                        else:
+                            out[k] = [inner]
+                    else:
+                        out[k] = s
+                elif isinstance(v, (list, tuple, np.ndarray, dict)):
+                    out[k] = normalise_value(v)
+                else:
+                    out[k] = v
+            return out
+
+        # handle string
+        if isinstance(x, str):
+            s = x.strip()
+            try:
+                parsed = json.loads(s)
+                return normalise_value(parsed)
+            except json.JSONDecodeError:
+                try:
+                    parsed = ast.literal_eval(s)
+                    return normalise_value(parsed)
+                except Exception:
+                    # detect bracketed string '[value_a, value_b,...]'
+                    m = bracket_pattern.match(s)
+                    if m:
+                        inner = m.group(1).strip()
+                        if "," in inner:
+                            items = [
+                                item.strip().strip('"').strip("'")
+                                for item in inner.split(",")
+                            ]
+                            return items
+                        else:
+                            return [inner]
+                    return s
+
+        # fallback for scalar
+        return x
+
+    df[column] = df[column].apply(normalise_value)
     return df
+
 
 def create_admission_window(start_date_str, end_date_str):
     """
@@ -675,11 +775,14 @@ def create_admission_window(start_date_str, end_date_str):
 
     return dates
 
-def random_24_hour_time(elective_hour_start:int,
-                        elective_hour_end:int,
-                        ae_hour_start:int,
-                        ae_hour_end:int,
-                        generate_elective=False):
+
+def random_24_hour_time(
+    elective_hour_start: int,
+    elective_hour_end: int,
+    ae_hour_start: int,
+    ae_hour_end: int,
+    generate_elective=False,
+):
     """
     Generates a random 24-hour time.
 
@@ -690,7 +793,7 @@ def random_24_hour_time(elective_hour_start:int,
         hour = random.randint(elective_hour_start, elective_hour_end)
     else:
         hour = random.randint(ae_hour_start, ae_hour_end)
-        
+
     minute = random.randrange(0, 55, 5)
 
     return dt_time(hour, minute, 0).strftime("%H:%M")
@@ -712,7 +815,8 @@ def build_output_info(template: dict) -> str:
 
     # Collect remaining items not in keep_key
     remaining_items = [
-        (k, v) for k, v in template.items() 
+        (k, v)
+        for k, v in template.items()
         if k not in keep_key and (content_key is None or k != content_key)
     ]
 
@@ -727,15 +831,17 @@ def build_output_info(template: dict) -> str:
             lines.append("  Other information that could be included in Content:")
             random.shuffle(remaining_items)
             for key, value in remaining_items:
-                lines.append(f"    - You could include information on {key}; this could be about {value}.")
+                lines.append(
+                    f"    - You could include information on {key}; this could be about {value}."
+                )
 
     # No Content: only show remaining items if they exist
     elif remaining_items:
         lines.append("- Possible additional Content could include:")
         random.shuffle(remaining_items)
         for key, value in remaining_items:
-            lines.append(f"  - You could include information on {key}; this could be about {value}.")
+            lines.append(
+                f"  - You could include information on {key}; this could be about {value}."
+            )
 
     return "\n".join(lines)
-
-
