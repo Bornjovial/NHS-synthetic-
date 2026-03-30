@@ -73,11 +73,20 @@ The pipeline was tested with Python 3.12.12.
    ```bash
    python run_pipeline.py --generations 10 --run-name my_run
    ```
-   Logs are written to stdout and to `logs/run_<timestamp>.log`. Exits with code 1 on failure.
+   Logs are written to stdout and to `logs/run_<timestamp>.log`. LLM call stats (latency, tokens, failure rate) are written to `output/run_stats_<timestamp>.jsonl`. Exits with code 1 on stage failure.
 
-   ```
-   python run_pipeline.py --help   # see all options
-   ```
+   Key flags:
+
+   | Flag | Description |
+   |---|---|
+   | `--generations N` | Number of patient journeys to generate |
+   | `--model NAME` | LLM model name (overrides `params.py`) |
+   | `--concurrency N` | Max concurrent LLM calls (default 4; reduce for local models) |
+   | `--resume` | Resume an interrupted run — skips already-completed patients |
+   | `--evaluate` | Score all generated notes for fluency, groundedness, relevance and readability after the run; writes `output/evaluation_results.csv` |
+   | `--run-name NAME` | Label included in output metadata |
+   | `--data-dir PATH` | Override input CSV directory |
+   | `--output-dir PATH` | Override output directory |
 
    **Notebook (interactive/exploratory):** open `notebooks/run_pipeline.ipynb` and run cells sequentially.
 

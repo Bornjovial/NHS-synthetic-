@@ -10,9 +10,14 @@ This file contains the basic parameters needed to run the pipeline. Example para
 
 1. **TEST_MODE** - If True, runs pipeline in test mode and generates one clinical note per patient.
 2. **model** - The model name to pass to the LLM endpoint. Must match the model name served by your local server (e.g. `"qwen2.5:72b"` for Ollama, `"Qwen/Qwen2.5-72B-Instruct-AWQ"` for vLLM).
-3. **number_of_generations** - The number of patient journeys to generate.
-4. **number_of_staff_names** - The number of staff names (approximately) to generate for each patient journey.
-5. **elective_admissions_dataset / emergency_admissions_dataset / patients_input_dataset** - Filename stems (without `.csv`) of input data files to read from `DATA_DIR`.
+3. **llm_concurrency** - Maximum number of concurrent LLM calls. Reduce for local models (2–4); increase for hosted APIs (8–16). Can also be set via `--concurrency` on the command line.
+4. **llm_num_ctx** - Context window size passed to the model (e.g. `8192`). Overrides the server default. No effect on Ollama — set `num_ctx` in a Modelfile instead (see README).
+5. **llm_max_tokens** - Maximum tokens the model may generate per response.
+6. **number_of_generations** - The number of patient journeys to generate.
+7. **resume** - If True, resumes an interrupted run by skipping already-completed patients and appending to checkpoint files. Enable via `--resume` on the command line rather than editing this file directly.
+8. **evaluate** - If True, runs LLM-judged quality evaluation (fluency, groundedness, relevance) and readability scoring after the pipeline completes, writing `evaluation_results.csv`. Enable via `--evaluate` on the command line.
+9. **number_of_staff_names** - The number of staff names (approximately) to generate for each patient journey.
+10. **elective_admissions_dataset / emergency_admissions_dataset / patients_input_dataset** - Filename stems (without `.csv`) of input data files to read from `DATA_DIR`.
 
 Each parameter has a comment next to it explaining exactly what it does.
 
