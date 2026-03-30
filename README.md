@@ -56,6 +56,13 @@ The pipeline was tested with Python 3.12.12.
    "model": "qwen2.5:72b"  # must match what your server is serving
    ```
 
+   > **Ollama context window:** Ollama loads models with a fixed context size (default 4096 tokens) that cannot be overridden at request time. To increase it, create a custom model with `num_ctx` set in a Modelfile:
+   > ```bash
+   > printf 'FROM qwen2.5:7b\nPARAMETER num_ctx 8192\n' > Modelfile
+   > ollama create qwen2.5:7b-ctx8k -f Modelfile
+   > ```
+   > Then set `"model": "qwen2.5:7b-ctx8k"` in `config/params.py`. The `llm_num_ctx` and `llm_max_tokens` params in `params.py` have no effect on Ollama's context window size.
+
 4. **Place input data** in `./data/` as CSV files. Example files are already provided. Dataset names in `config/params.py` must match the CSV filenames (without `.csv`).
 
 5. **Review optional settings** in `config/config.py` and `config/params.py`. See `docs/adapting_the_pipeline` for details.
