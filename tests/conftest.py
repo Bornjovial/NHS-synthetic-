@@ -1,63 +1,15 @@
 import json
-import pandas as pd
+import asyncio
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
-from src.data_generator import generate_admissions, generate_journeys
-
-
-# ---------------------------------------------------------------------------
-# Stub input DataFrames (used by fixtures to avoid disk reads)
-# ---------------------------------------------------------------------------
-
-_stub_patients = pd.DataFrame({
-    "FIRST": ["Jane"], "MIDDLE": ["A"], "LAST": ["Smith"],
-    "RACE": ["white"], "ETHNICITY": ["nonmixed"], "GENDER": ["F"],
-    "ADDRESS": ["1 Test St"], "CITY": ["London"], "POSTCODE": ["SW1A 1AA"],
-})
-
-# Emergency admissions data — needs Admitted_Flag, count, Der_Spell_LoS
-# and rows covering both age ranges and NovelDiseaseFlag values used in tests
-_stub_emergency = pd.DataFrame({
-    # Two rows per sex per NovelDiseaseFlag to cover all combinations across age ranges
-    "Age_Category":             ["18-90", "18-90", "18-90", "18-90"],
-    "Sex_Category":             ["Male",  "Female", "Male",  "Female"],
-    "ChiefComplaintDescription":["Chest pain", "Shortness of breath", "Chest pain", "Shortness of breath"],
-    "DiagnosisDescription":     ["Pneumonia", "COPD exacerbation", "Novel condition", "Novel condition"],
-    "rare_disease":             [0, 0, 0, 0],
-    "NovelDiseaseFlag":         [0, 0, 1, 1],
-    "AdditionalSymptoms":       ["None", "None", "None", "None"],
-    "AdditionalInformation":    ["None", "None", "None", "None"],
-    "ConfirmedBy":              ["None", "None", "None", "None"],
-    "SupportedBy":              ["None", "None", "None", "None"],
-    "Admitted_Flag":            [1, 1, 1, 1],
-    "count":                    [100, 100, 100, 100],
-    "Der_Spell_LoS":            [3.0, 4.0, 5.0, 5.0],
-})
-
-_stub_elective = pd.DataFrame({
-    "Age_Category": ["18-40"], "Sex": ["Male"],
-    "Speciality": ["Orthopaedics"], "Procedure": ["Hip replacement"],
-})
-
-_stub_admissions = pd.DataFrame({
-    "patient_id": ["test-id-1"],
-    "admission_type": ["emergency"],
-    "specialty": ["Respiratory Medicine"],
-    "ward": ["Respiratory Ward"],
-    "chief_complaint": ["Chest pain"],
-    "diagnosis": ["Pneumonia"],
-    "admitting_consultant": ["Dr. Test Consultant (Consultant)"],
-    "date": ["2023-10-15"], "time": ["14:37"],
-    "triage_category": ["Category 2 (Urgent)"],
-    "allergies": ["None"], "current_medications": ["None"],
-    "past_medical_history": ["None"],
-    "medical_record_number": ["123456789"],
-    "nhs_number": ["987654321"],
-    "bed_location": ["A01"],
-    "expected_length_of_stay": ["5"],
-    "surgery_required": ["False"],
-})
+from src.data_generator import generate_admissions, generate_journeys, generate_clinical_notes, add_augmentations
+from stubs import (
+    _stub_patients,
+    _stub_emergency,
+    _stub_elective,
+    _stub_admissions,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +121,9 @@ def _llm_response_for(prompt: str) -> str:
         return ADMISSION_LLM_RESPONSE
     if "patient" in prompt_lower:
         return PATIENT_LLM_RESPONSE
+    # Unknown prompt — fall back to patient response but warn so routing errors are visible
+    import warnings
+    warnings.warn(f"_llm_response_for: no routing match for prompt snippet {prompt_lower[:80]!r}")
     return PATIENT_LLM_RESPONSE
 
 
@@ -212,3 +167,64 @@ def journey_generator():
         admissions=_stub_admissions,
         name_df=_stub_patients,
     )
+
+
+@pytest.fixture(scope="module")
+def mock_llm_module():
+    """
+    Module-scoped variant of mock_llm for use in module-scoped generator fixtures.
+    Use the function-scoped mock_llm for per-test isolation; use this only for
+    module-level fixtures that call run() once and share results across tests.
+    """
+    async def _async_llm(prompt, model=None, temp=0.7, max_attempts=3, chat_history=None, sem=None):
+        return _llm_response_for(prompt)
+
+    def _sync_llm(prompt, model=None, temp=0.7, max_attempts=3, chat_history=None):
+        return _llm_response_for(prompt)
+
+    with patch("src.processing.call_llm_async", side_effect=_async_llm), \
+         patch("src.processing.call_llm", side_effect=_sync_llm):
+        yield
+
+
+@pytest.fixture(scope="module")
+def notes_generator(mock_llm_module):
+    """Stage 4 generator, run once per module. LLM validator disabled to avoid extra calls."""
+    import src.data_generator as dg
+    from stubs import _make_journeys_df, _make_staff_personas_df, _make_patients_df, _make_admissions_df
+    original = dg.PARAMS["pipeline_config"]["LLM_validator_iterations_clinical_note"]
+    dg.PARAMS["pipeline_config"]["LLM_validator_iterations_clinical_note"] = 0
+    try:
+        gen = generate_clinical_notes(
+            detailed_journeys=_make_journeys_df(),
+            staff_personas=_make_staff_personas_df(),
+            patients=_make_patients_df(),
+            admissions=_make_admissions_df(),
+            TEST_MODE=True,
+            filter_journey=False,
+            simple_template_only=True,
+            combine_sections=False,
+            model="test-model",
+        )
+        asyncio.run(gen.run(return_output=False))
+    finally:
+        dg.PARAMS["pipeline_config"]["LLM_validator_iterations_clinical_note"] = original
+    return gen
+
+
+@pytest.fixture(scope="module")
+def augmentation_generator(mock_llm_module):
+    """Stage 5 generator, run once per module."""
+    from stubs import _make_notes_df, _make_staff_personas_df, _make_journeys_df
+    gen = add_augmentations(
+        clinical_notes=_make_notes_df(),
+        staff_personas=_make_staff_personas_df(),
+        detailed_journeys=_make_journeys_df(),
+        add_abbreviations_to_content=False,
+        add_abbreviations_to_headings=False,
+        add_signature=True,
+        typo_rate=0.1,
+        filter_journey=False,
+    )
+    asyncio.run(gen.run())
+    return gen
