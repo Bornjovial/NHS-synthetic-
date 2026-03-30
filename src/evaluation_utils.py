@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import textstat
 import asyncio
 
@@ -82,7 +83,6 @@ def _parse_score(raw: str) -> int | None:
         return int(str(raw).strip())
     except (ValueError, TypeError):
         pass
-    import re
     match = re.search(r"\b([1-5])\b", str(raw))
     return int(match.group(1)) if match else None
 
@@ -123,6 +123,7 @@ async def run_evaluation(evaluation_output_data: list) -> pd.DataFrame:
 
     events = []
     patient_infos = []
+    journey_fields = {"journey", "current_event_i"}
     for r in evaluation_output_data:
         journey = r.get("journey", [])
         try:
@@ -131,7 +132,11 @@ async def run_evaluation(evaluation_output_data: list) -> pd.DataFrame:
         except (TypeError, IndexError, ValueError):
             event = {}
         events.append(json.dumps(event) if isinstance(event, dict) else str(event))
-        patient_infos.append(str(r.get("patient_id", "")))
+        # Build patient_info from record metadata, excluding the large journey/note fields
+        patient_info = {k: v for k, v in r.items()
+                        if k not in journey_fields and k != "clean_note_text"
+                        and k != "markdown_content" and k != "raw_blob_content"}
+        patient_infos.append(json.dumps(patient_info, default=str))
 
     # Readability — no LLM, compute inline
     flesch_scores = [calculate_readability_score(n, "flesch_reading_ease") for n in notes]

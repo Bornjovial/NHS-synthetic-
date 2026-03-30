@@ -15,6 +15,7 @@ import time
 from contextvars import ContextVar
 import ast
 
+import csv
 import os
 import pathlib
 from openai import OpenAI
@@ -31,14 +32,18 @@ _stats_file: pathlib.Path | None = None
 
 
 def _init_stats_file() -> pathlib.Path:
-    """Create (or truncate) run_stats.jsonl in OUTPUT_DIR and return its path."""
+    """Return the path to this run's run_stats.jsonl, creating it on first call.
+
+    The filename includes a timestamp so each process gets its own file and
+    previous runs are preserved. Safe to call multiple times.
+    """
     global _stats_file
     if _stats_file is None:
         from config.config import OUTPUT_DIR
         p = pathlib.Path(OUTPUT_DIR)
         p.mkdir(parents=True, exist_ok=True)
-        _stats_file = p / "run_stats.jsonl"
-        _stats_file.write_text("")  # truncate at start of each process
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        _stats_file = p / f"run_stats_{timestamp}.jsonl"
     return _stats_file
 
 
@@ -146,7 +151,7 @@ def call_llm(
                 },
             )
             latency = time.time() - t_start
-            usage = response.usage or {}
+            usage = response.usage
             _write_stat({
                 "timestamp": datetime.utcnow().isoformat(),
                 "stage": stage,
@@ -154,8 +159,8 @@ def call_llm(
                 "success": True,
                 "attempts": attempts_made,
                 "latency_s": round(latency, 3),
-                "prompt_tokens": getattr(usage, "prompt_tokens", None),
-                "completion_tokens": getattr(usage, "completion_tokens", None),
+                "prompt_tokens": getattr(usage, "prompt_tokens", None) if usage is not None else None,
+                "completion_tokens": getattr(usage, "completion_tokens", None) if usage is not None else None,
             })
             return response.choices[0].message.content
         except Exception as e:
@@ -903,7 +908,6 @@ def append_checkpoint_row(table_name: str, row: list):
         matching the column layout of the final intermediate DataFrame.
     """
     from config.config import OUTPUT_DIR
-    import csv
 
     pathlib.Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
     checkpoint_path = pathlib.Path(OUTPUT_DIR) / f"{table_name}_checkpoint.csv"

@@ -128,7 +128,8 @@ def preflight_check(logger):
 
 
 async def main(args, logger):
-    # Import pipeline stages after config overrides are applied
+    # Pipeline stage imports are deferred so config overrides (applied before main()
+    # is called) are visible when data_generator reads PARAMS at module level.
     from src.data_generator import (
         generate_patients,
         generate_admissions,
@@ -138,6 +139,8 @@ async def main(args, logger):
         save_final_outputs,
     )
     from src.dataset_utils import write_dataset
+    from src.evaluation_utils import run_evaluation
+    from config.params import PARAMS
 
     current_time = datetime.now()
     run_name = args.run_name
@@ -205,11 +208,9 @@ async def main(args, logger):
         sys.exit(1)
 
     # --- Optional: Evaluation ---
-    from config.params import PARAMS
     if PARAMS["pipeline_config"].get("evaluate", False):
         logger.info("=== Stage: Evaluation ===")
         try:
-            from src.evaluation_utils import run_evaluation
             evaluation_df = await run_evaluation(output_saver.evaluation_output_data)
             write_dataset(evaluation_df, "evaluation_results")
             logger.info(f"Evaluation complete: {len(evaluation_df)} notes scored.")
