@@ -6,6 +6,7 @@ from config.params import PARAMS
 from config.config import CONFIG
 
 import logging
+import pathlib
 import random
 import json
 import re
@@ -1112,7 +1113,6 @@ class generate_journeys():
     def _journeys_checkpoint_complete(self) -> bool:
         """Return True if the journeys stage output already exists on disk."""
         from config.config import OUTPUT_DIR
-        import pathlib
         required = ["intermediate_journeys", "intermediate_staff_personas"]
         if self.filter_journey:
             required.append("intermediate_filtered_journeys")
