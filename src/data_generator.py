@@ -1,7 +1,7 @@
 from src.prompts import patient_and_admission_prompts, patient_journey_prompts, clinical_note_prompts
 from src.doc_templates import document_templates, template_sections_to_combine
 from src.dataset_utils import generate_staff_gmc_and_pin, add_sign_off_to_note, prepare_note_data, prepare_patient_data, prepare_admission_data, prepare_encounter_data, prepare_evaluation_data, write_dataset, format_note, get_journey_evaluation_details
-from src.processing import call_llm, call_llm_async, read_write_data, clean_outputs, remove_failures, clean_int, combine_patients_and_admissions, clean_patient_details, combine_template_sections, add_abbreviations_to_dict, add_typos_to_dict, normalise_array_struct_column, create_admission_window, random_24_hour_time, build_output_info, checkpoint_row_count, append_checkpoint_row, finalise_checkpoint
+from src.processing import call_llm, call_llm_async, read_write_data, clean_outputs, remove_failures, clean_int, combine_patients_and_admissions, clean_patient_details, combine_template_sections, add_abbreviations_to_dict, add_typos_to_dict, normalise_array_struct_column, create_admission_window, random_24_hour_time, build_output_info, checkpoint_row_count, append_checkpoint_row, finalise_checkpoint, _current_stage, log_stage_summary
 from config.params import PARAMS
 from config.config import CONFIG
 
@@ -189,6 +189,7 @@ class generate_patients():
         return raw_patient_details
 
     async def run(self, return_output=False):
+        _current_stage.set("generate_patients")
         if self.generate_patient_information:
             logger.info(f'Generating {self.number_of_generations} patients...')
 
@@ -210,6 +211,7 @@ class generate_patients():
 
             logger.info("Patient generation DONE")
             self.list_of_patients_df = list_of_patients_df
+            log_stage_summary("generate_patients")
 
             if return_output:
                 return list_of_patients_df
@@ -515,6 +517,7 @@ class generate_admissions():
         return all_length_of_stays
 
     async def run(self, return_output=False):
+        _current_stage.set("generate_admissions")
         if self.generate_admission_information:
             logger.info(f'Generating {self.number_of_generations} admissions...')
 
@@ -542,6 +545,7 @@ class generate_admissions():
             self.list_of_admissions_df = pd.DataFrame(list_of_admissions)
 
             logger.info("Admission generation DONE")
+            log_stage_summary("generate_admissions")
             if return_output:
                 return self.list_of_admissions_df
 
@@ -891,6 +895,7 @@ class generate_journeys():
          - Validating simple journeys
          - Adding extra details
         """
+        _current_stage.set("generate_journeys")
         if self.resume and self._journeys_checkpoint_complete():
             logger.info("Resume: journeys stage already complete — loading from disk and skipping.")
             self._load_journeys_from_disk()
@@ -1095,6 +1100,7 @@ class generate_journeys():
                     logger.info(f"Journey {i} has length {len(journey_row)}")
 
             logger.info("Journey generation DONE")
+            log_stage_summary("generate_journeys")
             if return_outputs:
                 journeys = filtered_journeys if self.filter_journey else detailed_journeys
                 return journeys
@@ -1381,6 +1387,7 @@ class generate_clinical_notes():
         """
         Generates clinical notes for each step of a patients journey.
         """
+        _current_stage.set("generate_clinical_notes")
         if self.generate_notes:
 
             if self.TEST_MODE:
@@ -1467,6 +1474,7 @@ class generate_clinical_notes():
             self.final_patient_notes_df = pd.DataFrame(final_patient_documents)
 
             logger.info("Note generation DONE")
+            log_stage_summary("generate_clinical_notes")
 
             if return_output:
                 return final_patient_documents
@@ -1532,6 +1540,7 @@ class add_augmentations():
         self.clean_final_patient_df = None
 
     async def run(self, return_output=False):
+        _current_stage.set("add_augmentations")
 
         checkpoint_name = "intermediate_augmented_clinical_notes"
         completed_rows = checkpoint_row_count(checkpoint_name) if self.resume else 0
@@ -1607,6 +1616,7 @@ class add_augmentations():
         self.clean_final_patient_df = pd.DataFrame(clean_final_patient_documents)
 
         logger.info("Augmentation DONE")
+        log_stage_summary("add_augmentations")
         if return_output:
             return clean_final_patient_documents
 
@@ -1740,6 +1750,8 @@ class save_final_outputs():
                                                    run_name,
                                                    current_time)
                     evaluation_output_data.append(evaluation_data.copy())
+
+        self.evaluation_output_data = evaluation_output_data
 
         evaluation_output_df = pd.DataFrame(evaluation_output_data)
         evaluation_output_df = normalise_array_struct_column(evaluation_output_df, "journey") # journey is the only struct where this might occur.

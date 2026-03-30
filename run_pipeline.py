@@ -34,6 +34,7 @@ def parse_args():
     parser.add_argument("--run-name", type=str, default="", help="Label for this run")
     parser.add_argument("--concurrency", type=int, help="Max concurrent LLM calls (default: from params.py, recommended 2-4 for local models)")
     parser.add_argument("--resume", action="store_true", help="Resume a previously interrupted run: skip completed patients and append to checkpoint files")
+    parser.add_argument("--evaluate", action="store_true", help="Run quality evaluation (fluency, groundedness, relevance, readability) after the pipeline and write evaluation_results.csv")
     return parser.parse_args()
 
 
@@ -72,6 +73,8 @@ def apply_config_overrides(args):
         PARAMS["pipeline_config"]["llm_concurrency"] = args.concurrency
     if args.resume:
         PARAMS["pipeline_config"]["resume"] = True
+    if args.evaluate:
+        PARAMS["pipeline_config"]["evaluate"] = True
 
 
 def preflight_check(logger):
@@ -134,6 +137,7 @@ async def main(args, logger):
         add_augmentations,
         save_final_outputs,
     )
+    from src.dataset_utils import write_dataset
 
     current_time = datetime.now()
     run_name = args.run_name
@@ -199,6 +203,19 @@ async def main(args, logger):
     except Exception as e:
         logger.error(f"Stage 'Final Output' failed: {e}", exc_info=True)
         sys.exit(1)
+
+    # --- Optional: Evaluation ---
+    from config.params import PARAMS
+    if PARAMS["pipeline_config"].get("evaluate", False):
+        logger.info("=== Stage: Evaluation ===")
+        try:
+            from src.evaluation_utils import run_evaluation
+            evaluation_df = await run_evaluation(output_saver.evaluation_output_data)
+            write_dataset(evaluation_df, "evaluation_results")
+            logger.info(f"Evaluation complete: {len(evaluation_df)} notes scored.")
+        except Exception as e:
+            logger.error(f"Stage 'Evaluation' failed: {e}", exc_info=True)
+            sys.exit(1)
 
     logger.info("Pipeline complete.")
 

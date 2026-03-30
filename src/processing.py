@@ -25,7 +25,31 @@ logger = logging.getLogger(__name__)
 _loop_semaphore: ContextVar[asyncio.Semaphore] = ContextVar(
     "_loop_semaphore", default=None
 )
+_current_stage: ContextVar[str] = ContextVar("_current_stage", default="")
 _openai_client: OpenAI | None = None
+_stats_file: pathlib.Path | None = None
+
+
+def _init_stats_file() -> pathlib.Path:
+    """Create (or truncate) run_stats.jsonl in OUTPUT_DIR and return its path."""
+    global _stats_file
+    if _stats_file is None:
+        from config.config import OUTPUT_DIR
+        p = pathlib.Path(OUTPUT_DIR)
+        p.mkdir(parents=True, exist_ok=True)
+        _stats_file = p / "run_stats.jsonl"
+        _stats_file.write_text("")  # truncate at start of each process
+    return _stats_file
+
+
+def _write_stat(record: dict):
+    """Append one JSON record to run_stats.jsonl."""
+    try:
+        path = _init_stats_file()
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+    except Exception as e:
+        logger.warning(f"Could not write run stat: {e}")
 
 
 def _get_client() -> OpenAI:
@@ -102,7 +126,12 @@ def call_llm(
     num_ctx = PARAMS["pipeline_config"].get("llm_num_ctx")
     max_tokens = PARAMS["pipeline_config"].get("llm_max_tokens")
 
+    stage = _current_stage.get()
+    attempts_made = 0
+    t_start = time.time()
+
     for attempt in range(max_attempts):
+        attempts_made = attempt + 1
         try:
             response = client.chat.completions.create(
                 model=model,
@@ -116,12 +145,36 @@ def call_llm(
                     }
                 },
             )
+            latency = time.time() - t_start
+            usage = response.usage or {}
+            _write_stat({
+                "timestamp": datetime.utcnow().isoformat(),
+                "stage": stage,
+                "model": model,
+                "success": True,
+                "attempts": attempts_made,
+                "latency_s": round(latency, 3),
+                "prompt_tokens": getattr(usage, "prompt_tokens", None),
+                "completion_tokens": getattr(usage, "completion_tokens", None),
+            })
             return response.choices[0].message.content
         except Exception as e:
             logger.warning(
                 f"LLM call failed with error: {e} on attempt {attempt + 1}/{max_attempts}. Retrying..."
             )
             time.sleep(1)
+
+    latency = time.time() - t_start
+    _write_stat({
+        "timestamp": datetime.utcnow().isoformat(),
+        "stage": stage,
+        "model": model,
+        "success": False,
+        "attempts": attempts_made,
+        "latency_s": round(latency, 3),
+        "prompt_tokens": None,
+        "completion_tokens": None,
+    })
     logger.error(f"Failed after {max_attempts} attempts.")
 
 
@@ -881,6 +934,60 @@ def finalise_checkpoint(table_name: str):
     if checkpoint_path.exists():
         os.replace(checkpoint_path, final_path)
         logger.info(f"Checkpoint promoted: {checkpoint_path.name} → {final_path.name}")
+
+
+def log_stage_summary(stage: str):
+    """
+    Log a summary of LLM call statistics for a completed pipeline stage.
+
+    Reads the current run's ``run_stats.jsonl``, filters to entries whose
+    ``stage`` field matches the given name, and logs: total call count,
+    failure count and rate, mean and p95 latency, and total token usage.
+
+    Parameters
+    ----------
+    stage : str
+        Stage name as set via ``_current_stage`` (e.g. ``"generate_patients"``).
+    """
+    if _stats_file is None or not _stats_file.exists():
+        return
+
+    try:
+        records = []
+        with open(_stats_file, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                    if r.get("stage") == stage:
+                        records.append(r)
+                except json.JSONDecodeError:
+                    pass
+
+        if not records:
+            return
+
+        total = len(records)
+        failures = sum(1 for r in records if not r.get("success", True))
+        failure_rate = failures / total if total else 0.0
+        latencies = [r["latency_s"] for r in records if "latency_s" in r]
+        mean_latency = sum(latencies) / len(latencies) if latencies else 0.0
+        sorted_latencies = sorted(latencies)
+        p95_idx = max(0, int(len(sorted_latencies) * 0.95) - 1)
+        p95_latency = sorted_latencies[p95_idx] if sorted_latencies else 0.0
+        prompt_tokens = sum(r.get("prompt_tokens") or 0 for r in records)
+        completion_tokens = sum(r.get("completion_tokens") or 0 for r in records)
+
+        logger.info(
+            f"Stage '{stage}' summary: {total} calls, "
+            f"{failures} failures ({failure_rate:.1%}), "
+            f"latency mean={mean_latency:.1f}s p95={p95_latency:.1f}s, "
+            f"tokens prompt={prompt_tokens} completion={completion_tokens}"
+        )
+    except Exception as e:
+        logger.warning(f"Could not compute stage summary for '{stage}': {e}")
 
 
 def build_output_info(template: dict) -> str:
