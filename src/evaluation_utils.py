@@ -144,19 +144,24 @@ async def run_evaluation(evaluation_output_data: list) -> pd.DataFrame:
 
     # LLM-judged metrics — three async calls per note, all launched in parallel
     logger.info(f"run_evaluation: scoring {len(notes)} notes (fluency, groundedness, relevance)...")
-    tasks = []
-    for note, event, patient_info in zip(notes, events, patient_infos):
-        tasks.append(calculate_fluency([note]))
-        tasks.append(calculate_groundedness([note], event, patient_info))
-        tasks.append(calculate_relevance([note], event, patient_info))
-
-    raw_results = await asyncio.gather(*tasks)
+    per_note_tasks = [
+        (
+            calculate_fluency([note]),
+            calculate_groundedness([note], event, patient_info),
+            calculate_relevance([note], event, patient_info),
+        )
+        for note, event, patient_info in zip(notes, events, patient_infos)
+    ]
+    flat_tasks = [t for trio in per_note_tasks for t in trio]
+    flat_results = await asyncio.gather(*flat_tasks)
 
     results = []
     for i, record in enumerate(evaluation_output_data):
-        fluency_raw = raw_results[i * 3][0]
-        groundedness_raw = raw_results[i * 3 + 1][0]
-        relevance_raw = raw_results[i * 3 + 2][0]
+        fluency_raw, groundedness_raw, relevance_raw = (
+            flat_results[i * 3][0],
+            flat_results[i * 3 + 1][0],
+            flat_results[i * 3 + 2][0],
+        )
         row = record.copy()
         row["flesch_reading_ease"] = flesch_scores[i]
         row["dale_chall_readability_score"] = dale_chall_scores[i]

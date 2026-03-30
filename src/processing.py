@@ -979,7 +979,7 @@ def log_stage_summary(stage: str):
         latencies = [r["latency_s"] for r in records if "latency_s" in r]
         mean_latency = sum(latencies) / len(latencies) if latencies else 0.0
         sorted_latencies = sorted(latencies)
-        p95_idx = max(0, int(len(sorted_latencies) * 0.95) - 1)
+        p95_idx = min(len(sorted_latencies) - 1, math.ceil(len(sorted_latencies) * 0.95) - 1)
         p95_latency = sorted_latencies[p95_idx] if sorted_latencies else 0.0
         prompt_tokens = sum(r.get("prompt_tokens") or 0 for r in records)
         completion_tokens = sum(r.get("completion_tokens") or 0 for r in records)

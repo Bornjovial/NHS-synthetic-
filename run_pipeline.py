@@ -211,8 +211,11 @@ async def main(args, logger):
     if PARAMS["pipeline_config"].get("evaluate", False):
         logger.info("=== Stage: Evaluation ===")
         try:
+            from src.processing import _current_stage, log_stage_summary
+            _current_stage.set("evaluation")
             evaluation_df = await run_evaluation(output_saver.evaluation_output_data)
             write_dataset(evaluation_df, "evaluation_results")
+            log_stage_summary("evaluation")
             logger.info(f"Evaluation complete: {len(evaluation_df)} notes scored.")
         except Exception as e:
             logger.error(f"Stage 'Evaluation' failed: {e}", exc_info=True)
