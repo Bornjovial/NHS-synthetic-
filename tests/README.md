@@ -16,4 +16,4 @@ For more information please look at `docs/synthetic_data_limitations`.
 
 Open a terminal in the root of this repository.
 
-Run `pytest tests/*.py`
+Run `pytest tests/`

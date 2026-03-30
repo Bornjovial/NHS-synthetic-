@@ -18,20 +18,14 @@ Please see the GDS [Git style guide in the 'How to store source code' page of th
 
 ## Updating the Changelog
 
-If you open a GitHub pull request on this repo, please update `CHANGELOG` to reflect your contribution.
+If you open a GitHub pull request on this repo, please update [`CHANGELOG.md`](./CHANGELOG.md) to reflect your contribution.
 
-Add your entry under `Unreleased` as:
+Add your entry under `## [Unreleased]` using these sections:
 
-- `Breaking changes`
-- `New features`
-- `Fixes`
+- `### Added` — new features
+- `### Changed` — changes to existing behaviour
+- `### Fixed` — bug fixes
 
-Internal changes to the project that are not part of the public API do not need changelog entries, for example fixing the CI build server.
+Internal changes (e.g. CI configuration, typo fixes) do not need changelog entries.
 
-These sections follow [semantic versioning](https://semver.org/spec/v2.0.0.html), where:
-
-- `Breaking changes` corresponds to a `major` (1.X.X) change.
-- `New features` corresponds to a `minor` (X.1.X) change.
-- `Fixes` corresponds to a `patch` (X.X.1) change.
-
-See the [`CHANGELOG.md`](./CHANGELOG.md) for an example for how this looks.
+See [`CHANGELOG.md`](./CHANGELOG.md) for examples of how entries should look.
