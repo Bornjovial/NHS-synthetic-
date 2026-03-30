@@ -799,6 +799,90 @@ def random_24_hour_time(
     return dt_time(hour, minute, 0).strftime("%H:%M")
 
 
+def checkpoint_row_count(table_name: str) -> int:
+    """
+    Return the number of rows already written to a checkpoint file.
+
+    The checkpoint file is named ``{table_name}_checkpoint.csv`` and lives in
+    OUTPUT_DIR.  Returns 0 if the file does not exist or cannot be read,
+    meaning all patients still need to be processed.
+
+    Parameters
+    ----------
+    table_name : str
+        Base name of the intermediate table (e.g. ``"intermediate_journeys"``).
+
+    Returns
+    -------
+    int
+        Number of patient rows already completed.
+    """
+    from config.config import OUTPUT_DIR
+
+    checkpoint_path = pathlib.Path(OUTPUT_DIR) / f"{table_name}_checkpoint.csv"
+    if not checkpoint_path.exists():
+        return 0
+
+    try:
+        df = pd.read_csv(checkpoint_path, header=None, dtype=str)
+        count = len(df)
+        logger.info(f"Checkpoint '{table_name}': {count} patients already completed.")
+        return count
+    except Exception as e:
+        logger.warning(f"Could not read checkpoint file for '{table_name}': {e}. Starting fresh.")
+        return 0
+
+
+def append_checkpoint_row(table_name: str, row: list):
+    """
+    Append one patient's result row to the checkpoint CSV.
+
+    Each call opens the file in append mode and writes a single CSV row so
+    that progress is durable after every patient.  The checkpoint file is
+    created automatically if it does not yet exist.
+
+    Parameters
+    ----------
+    table_name : str
+        Base name of the intermediate table (e.g. ``"intermediate_journeys"``).
+    row : list
+        List of JSON strings (one per column) representing this patient's row,
+        matching the column layout of the final intermediate DataFrame.
+    """
+    from config.config import OUTPUT_DIR
+    import csv
+
+    pathlib.Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+    checkpoint_path = pathlib.Path(OUTPUT_DIR) / f"{table_name}_checkpoint.csv"
+
+    with open(checkpoint_path, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(row)
+
+
+def finalise_checkpoint(table_name: str):
+    """
+    Atomically promote a completed checkpoint file to the real intermediate file.
+
+    Renames ``{table_name}_checkpoint.csv`` → ``{table_name}.csv`` using
+    ``os.replace`` (atomic on POSIX).  Safe to call even if no checkpoint file
+    exists (no-op in that case).
+
+    Parameters
+    ----------
+    table_name : str
+        Base name of the intermediate table.
+    """
+    from config.config import OUTPUT_DIR
+
+    checkpoint_path = pathlib.Path(OUTPUT_DIR) / f"{table_name}_checkpoint.csv"
+    final_path = pathlib.Path(OUTPUT_DIR) / f"{table_name}.csv"
+
+    if checkpoint_path.exists():
+        os.replace(checkpoint_path, final_path)
+        logger.info(f"Checkpoint promoted: {checkpoint_path.name} → {final_path.name}")
+
+
 def build_output_info(template: dict) -> str:
     lines = []
 

@@ -33,6 +33,7 @@ def parse_args():
     parser.add_argument("--test-mode", action="store_true", help="Generate one clinical note per patient")
     parser.add_argument("--run-name", type=str, default="", help="Label for this run")
     parser.add_argument("--concurrency", type=int, help="Max concurrent LLM calls (default: from params.py, recommended 2-4 for local models)")
+    parser.add_argument("--resume", action="store_true", help="Resume a previously interrupted run: skip completed patients and append to checkpoint files")
     return parser.parse_args()
 
 
@@ -69,6 +70,8 @@ def apply_config_overrides(args):
         PARAMS["pipeline_config"]["TEST_MODE"] = True
     if args.concurrency:
         PARAMS["pipeline_config"]["llm_concurrency"] = args.concurrency
+    if args.resume:
+        PARAMS["pipeline_config"]["resume"] = True
 
 
 def preflight_check(logger):

@@ -1,7 +1,7 @@
 from src.prompts import patient_and_admission_prompts, patient_journey_prompts, clinical_note_prompts
 from src.doc_templates import document_templates, template_sections_to_combine
 from src.dataset_utils import generate_staff_gmc_and_pin, add_sign_off_to_note, prepare_note_data, prepare_patient_data, prepare_admission_data, prepare_encounter_data, prepare_evaluation_data, write_dataset, format_note, get_journey_evaluation_details
-from src.processing import call_llm, call_llm_async, read_write_data, clean_outputs, remove_failures, clean_int, combine_patients_and_admissions, clean_patient_details, combine_template_sections, add_abbreviations_to_dict, add_typos_to_dict, normalise_array_struct_column, create_admission_window, random_24_hour_time, build_output_info
+from src.processing import call_llm, call_llm_async, read_write_data, clean_outputs, remove_failures, clean_int, combine_patients_and_admissions, clean_patient_details, combine_template_sections, add_abbreviations_to_dict, add_typos_to_dict, normalise_array_struct_column, create_admission_window, random_24_hour_time, build_output_info, checkpoint_row_count, append_checkpoint_row, finalise_checkpoint
 from config.params import PARAMS
 from config.config import CONFIG
 
@@ -613,12 +613,13 @@ class generate_journeys():
         # Model
         self.model = model if model is not None else PARAMS["pipeline_config"]["model"]
 
+        self.resume = PARAMS["pipeline_config"].get("resume", False)
         self.list_of_staff_personas_df = None
         self.patient_journeys_df = None
         self.filter_journeys_df = None
         self.hospital_staff_personas_df = None
 
-    
+
     def generate_patient_journey_prompt(self, admission, length_of_stay, approx_events_per_day):
         """
         Creates a prompt for generating a patient journey.
@@ -885,11 +886,19 @@ class generate_journeys():
     async def run(self, get_lengths = True, return_outputs = False):
         """
         Creates patient journeys by:
-        
+
          - Generating simple journeys
          - Validating simple journeys
          - Adding extra details
         """
+        if self.resume and self._journeys_checkpoint_complete():
+            logger.info("Resume: journeys stage already complete — loading from disk and skipping.")
+            self._load_journeys_from_disk()
+            if return_outputs:
+                journeys = self.filter_journeys_df if self.filter_journey else self.patient_journeys_df
+                return [json.loads(row.iloc[0]) for _, row in journeys.iterrows()]
+            return
+
         if self.generate_patient_journey:
             patients_and_admissions = combine_patients_and_admissions(self.patients, self.admissions)
             
@@ -1094,6 +1103,25 @@ class generate_journeys():
             logger.info("SKIPPING JOURNEY GENERATION")
 
 
+    def _journeys_checkpoint_complete(self) -> bool:
+        """Return True if the journeys stage output already exists on disk."""
+        from config.config import OUTPUT_DIR
+        import pathlib
+        required = ["intermediate_journeys", "intermediate_staff_personas"]
+        if self.filter_journey:
+            required.append("intermediate_filtered_journeys")
+        return all(
+            (pathlib.Path(OUTPUT_DIR) / f"{name}.csv").exists()
+            for name in required
+        )
+
+    def _load_journeys_from_disk(self):
+        """Populate in-memory DataFrames from existing intermediate CSVs."""
+        self.patient_journeys_df = read_write_data("intermediate_journeys", "read")
+        self.list_of_staff_personas_df = read_write_data("intermediate_staff_personas", "read")
+        if self.filter_journey:
+            self.filter_journeys_df = read_write_data("intermediate_filtered_journeys", "read")
+
     def write_journeys_to_dataset(self):
 
         if self.list_of_staff_personas_df is None:
@@ -1170,6 +1198,7 @@ class generate_clinical_notes():
         self.patients_and_admissions = combine_patients_and_admissions(self.patients, self.admissions)
         # Model
         self.model = model if model is not None else PARAMS["pipeline_config"]["model"]
+        self.resume = PARAMS["pipeline_config"].get("resume", False)
         self.final_patient_notes_df = None
 
 
@@ -1360,10 +1389,18 @@ class generate_clinical_notes():
             else:
                 journeys = self.journeys
 
+            checkpoint_name = "intermediate_clean_clinical_notes"
+            completed_rows = checkpoint_row_count(checkpoint_name) if self.resume else 0
+
             final_patient_documents = []
 
-            for (journey_i, journey_row), (patient_i, patient_row), (persona_i, persona_row) in zip(
-                journeys.iterrows(), enumerate(self.patients_and_admissions), self.staff_personas.iterrows()):
+            for row_i, ((journey_i, journey_row), (patient_i, patient_row), (persona_i, persona_row)) in enumerate(zip(
+                journeys.iterrows(), enumerate(self.patients_and_admissions), self.staff_personas.iterrows())):
+
+                if self.resume and row_i < completed_rows:
+                    logger.info(f"Patient {patient_i}: already in checkpoint — skipping.")
+                    continue
+
                 logger.info(f"Patient {patient_i}: generating notes...")
 
                 journey_row = [json.loads(journey) for journey in journey_row if journey is not None]
@@ -1421,10 +1458,15 @@ class generate_clinical_notes():
 
                     notes = combined_notes
 
-                final_patient_documents.append([json.dumps(n) for n in notes])
+                patient_notes_row = [json.dumps(n) for n in notes]
+                final_patient_documents.append(patient_notes_row)
+
+                if self.resume:
+                    append_checkpoint_row(checkpoint_name, patient_notes_row)
+
+            self.final_patient_notes_df = pd.DataFrame(final_patient_documents)
 
             logger.info("Note generation DONE")
-            self.final_patient_notes_df = pd.DataFrame(final_patient_documents)
 
             if return_output:
                 return final_patient_documents
@@ -1433,13 +1475,18 @@ class generate_clinical_notes():
             logger.info("SKIPPING NOTE GENERATION")
 
     def write_patient_documents_to_dataset(self):
-        
+        checkpoint_name = "intermediate_clean_clinical_notes"
+
+        if self.resume:
+            finalise_checkpoint(checkpoint_name)
+            return
+
         if self.final_patient_notes_df is None:
             raise ValueError("Dataset is None — refusing to overwrite intermediate_clean_clinical_notes")
         if self.final_patient_notes_df.empty:
             raise ValueError("Dataset is empty — refusing to overwrite intermediate_clean_clinical_notes")
 
-        read_write_data("intermediate_clean_clinical_notes", "write", self.final_patient_notes_df)
+        read_write_data(checkpoint_name, "write", self.final_patient_notes_df)
 
 
 
@@ -1481,17 +1528,25 @@ class add_augmentations():
             self.journeys = detailed_journeys if detailed_journeys is not None else  read_write_data("intermediate_journeys", "read")
         # Model
         self.model = model if model is not None else PARAMS["pipeline_config"]["model"]
+        self.resume = PARAMS["pipeline_config"].get("resume", False)
         self.clean_final_patient_df = None
 
     async def run(self, return_output=False):
 
+        checkpoint_name = "intermediate_augmented_clinical_notes"
+        completed_rows = checkpoint_row_count(checkpoint_name) if self.resume else 0
+
         clean_final_patient_documents = []
 
-        for (notes_i, notes_row), (persona_i, persona_row), (journey_i, journey_row) in zip(
+        for row_i, ((notes_i, notes_row), (persona_i, persona_row), (journey_i, journey_row)) in enumerate(zip(
             self.clinical_notes.iterrows(),
-            self.staff_personas.iterrows(), 
+            self.staff_personas.iterrows(),
             self.journeys.iterrows()
-        ):
+        )):
+            if self.resume and row_i < completed_rows:
+                logger.info(f"Patient {row_i}: already in checkpoint — skipping.")
+                continue
+
             journey_row = [json.loads(journey) for journey in journey_row if journey is not None]
             persona_row = json.loads(persona_row.iloc[0])
 
@@ -1546,6 +1601,9 @@ class add_augmentations():
 
             clean_final_patient_documents.append(augmented_notes)
 
+            if self.resume:
+                append_checkpoint_row(checkpoint_name, augmented_notes)
+
         self.clean_final_patient_df = pd.DataFrame(clean_final_patient_documents)
 
         logger.info("Augmentation DONE")
@@ -1553,13 +1611,18 @@ class add_augmentations():
             return clean_final_patient_documents
 
     def write_final_documents_to_dataset(self):
-        
+        checkpoint_name = "intermediate_augmented_clinical_notes"
+
+        if self.resume:
+            finalise_checkpoint(checkpoint_name)
+            return
+
         if self.clean_final_patient_df is None:
             raise ValueError("Dataset is None — refusing to overwrite the list_of_staff_personas_df")
         if self.clean_final_patient_df.empty:
             raise ValueError("Dataset is empty — refusing to overwrite the list_of_staff_personas_df")
 
-        read_write_data("intermediate_augmented_clinical_notes", "write",self.clean_final_patient_df)
+        read_write_data(checkpoint_name, "write", self.clean_final_patient_df)
 
 
 

@@ -47,6 +47,7 @@ PARAMS = {
         "elective_admissions_dataset": "example_elective_admissions_data",  # Name of CSV file (without .csv) in DATA_DIR
         "emergency_admissions_dataset": "example_emergency_admissions_data",  # Name of CSV file (without .csv) in DATA_DIR
         "patients_input_dataset": "example_names_input_data",  # Name of CSV file (without .csv) in DATA_DIR
+        "resume": False,  # If True, resume an interrupted run by skipping already-completed patients. Use --resume flag in run_pipeline.py to enable.
     },
 }
 
